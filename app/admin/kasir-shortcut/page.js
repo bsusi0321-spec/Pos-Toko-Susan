@@ -12,6 +12,7 @@ export default function KasirShortcutPage() {
   const [loading, setLoading] = useState(true);
   const [label, setLabel] = useState("");
   const [productId, setProductId] = useState("");
+  const [hotkey, setHotkey] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -31,16 +32,21 @@ export default function KasirShortcutPage() {
 
   async function addShortcut() {
     if (!label || !productId) return toast.error("Isi nama tombol dan pilih barang");
+    if (hotkey && shortcuts.some((s) => s.hotkey?.toLowerCase() === hotkey.toLowerCase())) {
+      return toast.error("Hotkey ini sudah dipakai shortcut lain");
+    }
     setSaving(true);
     try {
       await supabase.from("cashier_shortcuts").insert({
         label,
         product_id: productId,
+        hotkey: hotkey || null,
         sort_order: shortcuts.length,
       });
       toast.success("Shortcut ditambahkan");
       setLabel("");
       setProductId("");
+      setHotkey("");
       load();
     } catch (err) {
       toast.error(err.message);
@@ -55,26 +61,35 @@ export default function KasirShortcutPage() {
     load();
   }
 
+  async function updateHotkey(id, value) {
+    await supabase.from("cashier_shortcuts").update({ hotkey: value || null }).eq("id", id);
+    load();
+  }
+
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold">Tampilan Kasir & Shortcut</h1>
         <p className="text-sm text-ink-muted">
-          Atur tombol pintasan (shortcut) yang tampil di sidebar halaman kasir. Kasir hanya melihat sidebar ini dan keranjang belanja.
+          Tombol pintasan (shortcut) ini yang tampil di sidebar halaman kasir — kasir hanya melihat
+          sidebar ini dan keranjang belanja, semua isinya diatur dari sini oleh admin. Hotkey opsional
+          membuat shortcut bisa dipicu langsung dari keyboard (mis. tombol angka 1-9), selain diklik.
         </p>
       </div>
 
       <Card title="Tambah Shortcut">
-        <div className="grid sm:grid-cols-3 gap-3">
+        <div className="grid sm:grid-cols-4 gap-3">
           <Input label="Nama Tombol" placeholder="mis. Gula 1kg" value={label} onChange={(e) => setLabel(e.target.value)} />
           <Select label="Barang" value={productId} onChange={(e) => setProductId(e.target.value)}>
             <option value="">-- pilih barang --</option>
             {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
+          <Input label="Hotkey (opsional)" placeholder="mis. 1" maxLength={1} value={hotkey} onChange={(e) => setHotkey(e.target.value)} />
           <div className="flex items-end">
             <Button onClick={addShortcut} disabled={saving} className="w-full">{saving ? "Menyimpan..." : "+ Tambah"}</Button>
           </div>
         </div>
+        <p className="text-xs text-ink-muted mt-2">Hotkey berupa 1 karakter (angka atau huruf), harus unik antar shortcut.</p>
       </Card>
 
       <Card title="Daftar Shortcut Aktif">
@@ -83,12 +98,21 @@ export default function KasirShortcutPage() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {shortcuts.map((s) => (
-              <div key={s.id} className="border border-border rounded-lg px-3 py-2.5 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{s.label}</p>
-                  <p className="text-xs text-ink-muted">{s.products?.name}</p>
+              <div key={s.id} className="border border-border rounded-lg px-3 py-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div>
+                    <p className="text-sm font-medium">{s.label}</p>
+                    <p className="text-xs text-ink-muted">{s.products?.name}</p>
+                  </div>
+                  <button onClick={() => removeShortcut(s.id)} className="text-xs text-danger hover:underline">Hapus</button>
                 </div>
-                <button onClick={() => removeShortcut(s.id)} className="text-xs text-danger hover:underline">Hapus</button>
+                <input
+                  defaultValue={s.hotkey || ""}
+                  maxLength={1}
+                  placeholder="hotkey"
+                  onBlur={(e) => updateHotkey(s.id, e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+                />
               </div>
             ))}
           </div>

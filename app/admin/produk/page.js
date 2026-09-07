@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
 import { Button, Card, Input, Modal, Select, Toggle, EmptyState, Badge } from "@/components/ui/kit";
+import { useBarcodeScan } from "@/lib/useBarcodeScan";
 
 const emptyForm = {
   id: null,
@@ -38,6 +39,18 @@ export default function ProdukPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Scan barcode global: kalau form tambah/edit produk sedang terbuka, isi kolom SKU/barcode-nya.
+  // Kalau form tertutup, pakai untuk langsung mencari produk di daftar.
+  useBarcodeScan((code) => {
+    if (modalOpen) {
+      setForm((f) => ({ ...f, sku: code }));
+      toast.success(`Kode "${code}" dimasukkan ke kolom SKU`, { id: "scan-fill" });
+    } else {
+      setSearch(code);
+    }
+  });
+
 
   async function load() {
     setLoading(true);

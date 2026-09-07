@@ -23,6 +23,7 @@ Ikuti urutan ini dari atas ke bawah. Total waktu sekitar 30-45 menit untuk yang 
 3. Buka file `supabase/schema.sql` dari folder aplikasi (hasil unduhan sebelumnya), **copy semua isinya**.
 4. Tempel ke SQL Editor, klik **Run** (atau Ctrl+Enter).
 5. Pastikan muncul tulisan **Success. No rows returned** — berarti semua tabel berhasil dibuat.
+6. Ulangi langkah yang sama untuk file `supabase/migration-02-fitur-tambahan.sql` (New query → copy isi file → Run).
 
 > Jika muncul error "relation already exists", berarti Anda menjalankannya dua kali — aman, abaikan saja.
 
@@ -87,13 +88,14 @@ Ganti `USERNAME_ANDA` dan `pos-kasir-toko` sesuai punya Anda. Saat diminta login
 
 1. Buka https://vercel.com/new, login pakai akun GitHub Anda.
 2. Klik **Import** pada repository `pos-kasir-toko` yang barusan dibuat.
-3. Di bagian **Environment Variables**, tambahkan 3 baris berikut satu per satu (pakai nilai dari langkah 1.4):
+3. Di bagian **Environment Variables**, tambahkan 4 baris berikut satu per satu (pakai nilai dari langkah 1.4):
 
    | Name | Value |
    |---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | Project URL Anda |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon public key Anda |
    | `SUPABASE_SERVICE_ROLE_KEY` | service_role key Anda |
+   | `CRON_SECRET` | ketik bebas string acak, mis. `rahasia-arsip-toko-susan-2026` |
 
 4. Klik **Deploy**. Tunggu 1-3 menit.
 5. Setelah selesai, klik **Visit** — aplikasi Anda sudah online di alamat seperti `pos-kasir-toko.vercel.app`.

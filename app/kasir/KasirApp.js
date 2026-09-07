@@ -9,6 +9,7 @@ import { getPriceVariants, priceTypeLabel } from "@/lib/pricing";
 import { logActivity } from "@/lib/logActivity";
 import { useScanner, BARCODE_EVENT } from "@/components/ScannerProvider";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
+import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
 
 import OpeningCashModal from "./components/OpeningCashModal";
 import CloseShiftModal from "./components/CloseShiftModal";
@@ -17,6 +18,7 @@ import QtyModal from "./components/QtyModal";
 import PaymentModal from "./components/PaymentModal";
 import PendingListModal from "./components/PendingListModal";
 import CameraScannerModal from "./components/CameraScannerModal";
+import { Volume2, VolumeX } from "lucide-react";
 
 export default function KasirApp({ profile, initialShift, products, shortcuts, customers, settings, pendingTransactions }) {
   const supabase = createClient();
@@ -40,6 +42,11 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [closeShiftOpen, setCloseShiftOpen] = useState(false);
   const { physicalActive, phoneConnected } = useScanner();
+  const [voiceOn, setVoiceOn] = useState(true);
+
+  useEffect(() => {
+    setVoiceOn(isVoiceEnabled());
+  }, []);
 
   const searchRef = useRef(null);
 
@@ -92,6 +99,7 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
     });
     setSearch("");
     toast.success(`${product.name} ditambahkan`, { id: "add-item" });
+    speakProductName(product.name);
   }, []);
 
   function handlePickProduct(product) {
@@ -162,13 +170,21 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
           e.preventDefault();
           if (confirm("Batalkan seluruh keranjang belanja?")) resetCart();
         }
+      } else if (!isTyping) {
+        // Hotkey kustom dari shortcut yang diatur admin (mis. tombol angka 1-9)
+        const match = shortcuts.find((sc) => sc.hotkey && sc.hotkey.toLowerCase() === e.key.toLowerCase());
+        if (match) {
+          e.preventDefault();
+          const p = products.find((pr) => pr.id === match.product_id);
+          if (p) handlePickProduct(p);
+        }
       }
     }
 
     window.addEventListener("keydown", onKeydownGlobal);
     return () => window.removeEventListener("keydown", onKeydownGlobal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, selectedIndex]);
+  }, [cart, selectedIndex, shortcuts]);
 
   function removeItem(index) {
     setCart((prev) => prev.filter((_, i) => i !== index));
@@ -383,6 +399,10 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
         </div>
 
         <div className="flex-1 overflow-auto p-3 space-y-1.5">
+          <div className="flex items-center justify-between px-1 mb-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Shortcut Kasir</p>
+            <span className="text-[10px] text-ink-muted italic">diatur admin</span>
+          </div>
           {shortcuts.map((sc) => (
             <button
               key={sc.id}
@@ -390,9 +410,10 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
                 const p = products.find((pr) => pr.id === sc.product_id);
                 if (p) handlePickProduct(p);
               }}
-              className="w-full text-left rounded-lg border border-border px-3 py-2 text-sm hover:border-primary hover:bg-primary-soft transition truncate"
+              className="w-full flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:border-primary hover:bg-primary-soft transition"
             >
-              {sc.label}
+              <span className="truncate">{sc.label}</span>
+              {sc.hotkey && <span className="kbd shrink-0">{sc.hotkey}</span>}
             </button>
           ))}
           {shortcuts.length === 0 && (
@@ -401,6 +422,17 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
         </div>
 
         <div className="p-3 border-t border-border space-y-1.5">
+          <button
+            onClick={() => {
+              const next = !voiceOn;
+              setVoiceOn(next);
+              setVoiceEnabled(next);
+            }}
+            className="w-full flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+          >
+            {voiceOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            Suara Nama Barang: {voiceOn ? "Aktif" : "Mati"}
+          </button>
           <button
             onClick={() => setCameraOpen(true)}
             className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
@@ -569,6 +601,7 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
         <PaymentModal
           total={totals.total}
           customer={customer}
+          settings={settings}
           onClose={() => setPaymentOpen(false)}
           onSubmit={handleCheckout}
           loading={checkoutLoading}

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDate, formatDateTime } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
 import { Button, Card, Input, Modal, Select, Textarea, EmptyState, Badge } from "@/components/ui/kit";
+import { useBarcodeScan } from "@/lib/useBarcodeScan";
 
 export default function PembelianPage() {
   const supabase = createClient();
@@ -25,12 +26,24 @@ export default function PembelianPage() {
     load();
   }, []);
 
+  // Scan barcode global: kalau form pesanan sedang terbuka, pilihkan barang di kolom "tambah barang".
+  useBarcodeScan((code) => {
+    if (!modalOpen) return;
+    const match = products.find(
+      (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
+    );
+    if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-pembelian" });
+    setItemDraft((d) => ({ ...d, product_id: match.id }));
+    toast.success(`Terpilih: ${match.name}`, { id: "scan-pembelian" });
+  });
+
+
   async function load() {
     setLoading(true);
     const [{ data: o }, { data: s }, { data: p }] = await Promise.all([
       supabase.from("purchase_orders").select("*, suppliers(name), purchase_order_items(*, products(name))").order("created_at", { ascending: false }),
       supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
-      supabase.from("products").select("id, name, stock_qty, cost_price").eq("active", true).order("name"),
+      supabase.from("products").select("id, name, stock_qty, cost_price, sku, product_barcodes(barcode)").eq("active", true).order("name"),
     ]);
     setOrders(o || []);
     setSuppliers(s || []);

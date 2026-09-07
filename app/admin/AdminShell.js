@@ -16,6 +16,7 @@ import {
   Users,
   ScrollText,
   UserCog,
+  Archive,
   Settings,
   Keyboard,
   LogOut,
@@ -41,6 +42,7 @@ const NAV = [
   { href: "/admin/pembelian", label: "Pembelian", icon: ShoppingCart },
   { href: "/admin/pelanggan", label: "Pelanggan", icon: Users },
   { href: "/admin/log-aktivitas", label: "Log Aktivitas", icon: ScrollText },
+  { href: "/admin/arsip", label: "Arsip Data", icon: Archive },
   { href: "/admin/pengguna", label: "Pengguna", icon: UserCog },
   { href: "/admin/pengaturan", label: "Pengaturan Toko", icon: Settings },
 ];

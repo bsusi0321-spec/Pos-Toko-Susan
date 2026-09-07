@@ -34,6 +34,7 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
 
 1. Buat project baru di https://supabase.com.
 2. Buka **SQL Editor**, jalankan seluruh isi file `supabase/schema.sql` (satu kali).
+3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql` (satu kali, setelah schema.sql).
 3. Buka **Authentication > Users > Add user**, buat akun admin pertama:
    - Email: `namaadmin@kasir.local` (format ini dipakai karena aplikasi login
      dengan **username**, bukan email — sistem menambahkan `@kasir.local` otomatis)
@@ -77,11 +78,12 @@ git push -u origin main
 ## 4. Deploy ke Vercel
 
 1. Buka https://vercel.com/new, pilih repository GitHub yang barusan dibuat.
-2. Saat konfigurasi project, buka **Environment Variables**, tambahkan 3 variabel
+2. Saat konfigurasi project, buka **Environment Variables**, tambahkan 4 variabel
    yang sama seperti di `.env.local`:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
+   - `CRON_SECRET` (bebas isi apa saja, string acak — dipakai untuk mengamankan jadwal Arsip Data otomatis)
 3. Klik **Deploy**. Setelah selesai, aplikasi bisa diakses dari domain `*.vercel.app`
    yang diberikan Vercel (atau domain kustom Anda).
 
@@ -110,9 +112,14 @@ git push -u origin main
 - **Backup otomatis ke cloud**: Supabase sudah melakukan backup harian otomatis
   di paket berbayarnya (Point-in-Time Recovery); untuk backup tambahan ke
   penyimpanan lain perlu dijadwalkan terpisah (mis. Supabase scheduled function).
-- **Arsip data**: seluruh data historis (transaksi, stok, dsb.) disimpan permanen
-  di database Supabase Anda (lokasi region sesuai yang dipilih saat membuat
-  project) dan selalu bisa dibuka kembali dari dalam aplikasi — tidak ada
-  data yang dipindahkan ke luar aplikasi.
+- **Arsip data**: transaksi lama ditandai sebagai arsip lewat halaman **Arsip Data** —
+  bisa manual (klik "Jalankan Sekarang") atau otomatis sesuai jadwal (dijalankan lewat
+  Vercel Cron setiap hari, hanya benar-benar memproses saat jadwalnya sudah waktunya).
+  Data yang diarsipkan **tidak dihapus** dan tetap bisa dibuka di halaman yang sama.
+- **Scanner global**: scanner fisik dan HP (via QR) aktif di semua halaman utama yang
+  ada kolom cari/pilih barang — bukan cuma di Kasir.
+- **Suara nama barang**: memakai fitur bawaan browser (Web Speech API), gratis tanpa
+  API luar. Beberapa browser/OS lama mungkin tidak mendukung — kalau begitu, fitur ini
+  otomatis diam saja tanpa mengganggu transaksi.
 - Tidak ada akun demo yang ditampilkan di aplikasi; seluruh akun dibuat manual
   oleh admin melalui menu Pengguna atau langkah setup di atas.

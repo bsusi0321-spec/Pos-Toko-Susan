@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { Button, Card, Input, Select, Toggle, EmptyState } from "@/components/ui/kit";
+import { useBarcodeScan } from "@/lib/useBarcodeScan";
 
 export default function LabelBarcodePage() {
   const supabase = createClient();
@@ -18,6 +19,13 @@ export default function LabelBarcodePage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Scan barcode global: langsung isikan ke kolom "Kode Barcode" pada form tambah/edit.
+  useBarcodeScan((code) => {
+    setForm((f) => ({ ...f, barcode: code }));
+    toast.success(`Kode "${code}" dimasukkan ke kolom barcode`, { id: "scan-fill" });
+  });
+
 
   async function load() {
     setLoading(true);

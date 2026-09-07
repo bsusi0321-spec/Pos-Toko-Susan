@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatNumber, formatDateTime, formatRupiah } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
 import { Button, Card, Input, Select, Textarea, EmptyState, Badge } from "@/components/ui/kit";
+import { useBarcodeScan } from "@/lib/useBarcodeScan";
 
 export default function StokPage() {
   const supabase = createClient();
@@ -24,12 +25,24 @@ export default function StokPage() {
     load();
   }, []);
 
+  // Scan barcode global: langsung pilihkan barang yang cocok pada form yang sedang aktif (tab).
+  useBarcodeScan((code) => {
+    const match = products.find(
+      (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
+    );
+    if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-stok" });
+    if (tab === "masuk") setInForm((f) => ({ ...f, product_id: match.id }));
+    else setCorrForm((f) => ({ ...f, product_id: match.id }));
+    toast.success(`Terpilih: ${match.name}`, { id: "scan-stok" });
+  });
+
+
   async function load() {
     setLoading(true);
     const { data: userData } = await supabase.auth.getUser();
     setUserId(userData?.user?.id);
     const [{ data: p }, { data: s }, { data: m }] = await Promise.all([
-      supabase.from("products").select("id, name, stock_qty, cost_price").eq("active", true).order("name"),
+      supabase.from("products").select("id, name, stock_qty, cost_price, sku, product_barcodes(barcode)").eq("active", true).order("name"),
       supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
       supabase
         .from("stock_movements")

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDateTime, formatNumber } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
 import { Button, Card, EmptyState, Input, Select, Textarea, Badge } from "@/components/ui/kit";
+import { useBarcodeScan } from "@/lib/useBarcodeScan";
 
 export default function ReturPage() {
   const supabase = createClient();
@@ -21,10 +22,21 @@ export default function ReturPage() {
     load();
   }, []);
 
+  // Scan barcode global: langsung pilihkan barang yang diretur.
+  useBarcodeScan((code) => {
+    const match = products.find(
+      (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
+    );
+    if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-retur" });
+    setForm((f) => ({ ...f, product_id: match.id }));
+    toast.success(`Terpilih: ${match.name}`, { id: "scan-retur" });
+  });
+
+
   async function load() {
     setLoading(true);
     const [{ data: p }, { data: s }, { data: r }] = await Promise.all([
-      supabase.from("products").select("id, name, stock_qty, sell_price").eq("active", true).order("name"),
+      supabase.from("products").select("id, name, stock_qty, sell_price, sku, product_barcodes(barcode)").eq("active", true).order("name"),
       supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
       supabase.from("returns").select("*, products(name)").order("created_at", { ascending: false }).limit(50),
     ]);

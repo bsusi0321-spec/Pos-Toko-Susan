@@ -20,6 +20,16 @@ function emitScan(code, source) {
   window.dispatchEvent(new CustomEvent(BARCODE_EVENT, { detail: { code, source } }));
 }
 
+function makeId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  // fallback untuk lingkungan tanpa crypto.randomUUID (browser lama / http non-secure)
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export default function ScannerProvider({ children }) {
   const supabaseRef = useRef(null);
   const getSupabase = useCallback(() => {
@@ -27,7 +37,7 @@ export default function ScannerProvider({ children }) {
     return supabaseRef.current;
   }, []);
   const [physicalActive, setPhysicalActive] = useState(false);
-  const [phoneSession, setPhoneSession] = useState(null); // { id, connected }
+  const [phoneSession, setPhoneSession] = useState(null); // { id, connected, error }
   const bufferRef = useRef("");
   const timerRef = useRef(null);
   const idleTimerRef = useRef(null);
@@ -68,19 +78,25 @@ export default function ScannerProvider({ children }) {
 
   // ---------- Sambungkan HP via QR (Supabase Realtime broadcast) ----------
   const startPairing = useCallback(() => {
-    const id = crypto.randomUUID();
+    const id = makeId();
     const supabase = getSupabase();
     const channel = supabase
-      .channel(`scanner-pair-${id}`)
+      .channel(`scanner-pair-${id}`, { config: { broadcast: { ack: true, self: false } } })
       .on("broadcast", { event: "scan" }, (payload) => {
         if (payload?.payload?.code) emitScan(payload.payload.code, "phone");
       })
       .on("broadcast", { event: "hello" }, () => {
-        setPhoneSession((s) => (s ? { ...s, connected: true } : s));
+        setPhoneSession((s) => (s ? { ...s, connected: true, error: null } : s));
+        // Balas supaya HP tahu pasti sudah tersambung dua arah.
+        channel.send({ type: "broadcast", event: "ack", payload: {} });
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setPhoneSession((s) => (s ? { ...s, error: "Gagal tersambung ke server realtime. Cek koneksi internet." } : s));
+        }
+      });
     channelRef.current = channel;
-    setPhoneSession({ id, connected: false });
+    setPhoneSession({ id, connected: false, error: null });
     return id;
   }, [getSupabase]);
 
@@ -103,6 +119,7 @@ export default function ScannerProvider({ children }) {
         physicalActive,
         phoneConnected: !!phoneSession?.connected,
         phoneSessionId: phoneSession?.id || null,
+        phoneError: phoneSession?.error || null,
         startPairing,
         stopPairing,
       }}

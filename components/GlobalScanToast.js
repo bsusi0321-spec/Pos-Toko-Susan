@@ -7,10 +7,19 @@ import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
 import { BARCODE_EVENT } from "./ScannerProvider";
 
-// Widget ini TIDAK aktif di halaman /kasir — di sana barcode langsung
-// menambah barang ke keranjang (ditangani oleh KasirApp sendiri).
-// Di halaman lain (Produk, Stok, Label & Barcode, dst.), hasil scan
-// ditampilkan sebagai info singkat: nama barang, harga, dan sisa stok.
+// Widget ini TIDAK aktif di halaman yang sudah punya penanganan scan sendiri
+// (Kasir menambah ke keranjang; Produk/Stok/Label&Barcode/Retur/Pembelian mengisi
+// kolom form/pencarian masing-masing). Di halaman admin LAIN yang belum punya
+// penanganan khusus, hasil scan ditampilkan sebagai info singkat: nama, harga, stok.
+const PAGES_WITH_OWN_HANDLING = [
+  "/kasir",
+  "/admin/produk",
+  "/admin/stok",
+  "/admin/label-barcode",
+  "/admin/retur",
+  "/admin/pembelian",
+];
+
 export default function GlobalScanToast() {
   const pathname = usePathname();
   const supabaseRef = useRef(null);
@@ -39,7 +48,7 @@ export default function GlobalScanToast() {
     }
 
     async function onScan(e) {
-      if (pathname?.startsWith("/kasir")) return; // dibiarkan untuk KasirApp
+      if (PAGES_WITH_OWN_HANDLING.some((p) => pathname?.startsWith(p))) return;
       const code = e.detail?.code;
       if (!code) return;
       const product = await findProduct(code);

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 import InstallAppButton from "@/components/InstallAppButton";
+import { googleFontHref } from "@/lib/loginFonts";
 
 export default function LoginForm({ settings }) {
   const router = useRouter();
@@ -14,7 +15,8 @@ export default function LoginForm({ settings }) {
   const [loading, setLoading] = useState(false);
 
   const s = settings || {};
-  const bgUrl = s.login_bg_url;
+  const bgType = s.login_bg_type || "color";
+  const fontFamily = s.login_font_family || "Inter";
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -47,13 +49,40 @@ export default function LoginForm({ settings }) {
   }
 
   return (
-    <div
-      className="flex-1 flex items-center justify-center p-6"
-      style={{
-        background: bgUrl ? `linear-gradient(180deg, rgba(14,17,22,.55), rgba(14,17,22,.75)), url(${bgUrl}) center/cover no-repeat` : "var(--background)",
-      }}
-    >
-      <div className="w-full max-w-sm bg-surface border border-border rounded-2xl shadow-sm p-8">
+    <div className="relative flex-1 flex items-center justify-center p-6 overflow-hidden bg-black">
+      {/* Memuat font pilihan admin langsung dari Google Fonts di browser (tidak berat saat build) */}
+      <link rel="stylesheet" href={googleFontHref(fontFamily)} />
+
+      {/* ---------- Lapisan Latar Belakang ---------- */}
+      {bgType === "video" && s.login_bg_video_url && (
+        <video
+          className="absolute inset-0 w-full h-full object-cover"
+          src={s.login_bg_video_url}
+          autoPlay
+          loop
+          muted
+          playsInline
+        />
+      )}
+      {bgType === "image" && s.login_bg_url && (
+        <div
+          className="absolute inset-0 w-full h-full bg-cover bg-center"
+          style={{ backgroundImage: `url(${s.login_bg_url})` }}
+        />
+      )}
+      {bgType === "color" && (
+        <div
+          className="absolute inset-0 w-full h-full"
+          style={{
+            background: `linear-gradient(135deg, ${s.login_gradient_from || "#0f6d4f"}, ${s.login_gradient_to || "#0b1f19"})`,
+          }}
+        />
+      )}
+      {/* Overlay gelap tipis supaya form tetap terbaca di atas background apa pun */}
+      <div className="absolute inset-0 bg-black/40" />
+
+      {/* ---------- Kartu Form Login ---------- */}
+      <div className="relative w-full max-w-sm bg-surface/95 backdrop-blur border border-border rounded-2xl shadow-xl p-8">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-3 h-11 w-11 rounded-xl bg-primary-soft flex items-center justify-center text-primary font-semibold text-lg">
             {(s.store_name || "K").charAt(0).toUpperCase()}
@@ -61,7 +90,7 @@ export default function LoginForm({ settings }) {
           <h1
             style={{
               color: s.login_font_color || "var(--ink)",
-              fontFamily: s.login_font_family || "inherit",
+              fontFamily: `"${fontFamily}", sans-serif`,
               fontWeight: s.login_font_weight || 600,
             }}
             className="text-xl"

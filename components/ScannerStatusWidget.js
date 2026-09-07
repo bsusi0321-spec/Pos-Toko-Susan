@@ -6,7 +6,7 @@ import { ScanLine, X } from "lucide-react";
 import { useScanner } from "./ScannerProvider";
 
 export default function ScannerStatusWidget() {
-  const { physicalActive, phoneConnected, phoneSessionId, startPairing, stopPairing } = useScanner();
+  const { physicalActive, phoneConnected, phoneSessionId, phoneError, startPairing, stopPairing } = useScanner();
   const [modalOpen, setModalOpen] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState(null);
 
@@ -62,6 +62,10 @@ export default function ScannerStatusWidget() {
               Setelah tersambung, cukup arahkan HP ke barcode barang — hasilnya langsung terpakai
               di layar ini, di halaman mana pun sedang dibuka.
             </p>
+
+            {phoneError && (
+              <p className="text-xs text-danger bg-danger-soft rounded-lg px-3 py-2 mb-3">{phoneError}</p>
+            )}
 
             <div className="flex justify-center bg-white rounded-xl p-4 mb-3">
               {qrDataUrl ? <img src={qrDataUrl} alt="QR sambungkan scanner HP" width={220} height={220} /> : <p className="text-xs text-ink-muted py-16">Membuat kode QR...</p>}

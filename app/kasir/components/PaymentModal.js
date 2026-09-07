@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { formatRupiah } from "@/lib/format";
 
-export default function PaymentModal({ total, customer, onClose, onSubmit, loading }) {
-  const [method, setMethod] = useState(customer ? "tunai" : "tunai");
+export default function PaymentModal({ total, customer, settings, onClose, onSubmit, loading }) {
+  const [method, setMethod] = useState("tunai");
   const [paid, setPaid] = useState(String(total));
   const paidNum = parseFloat(paid) || 0;
   const change = method === "kasbon" ? 0 : Math.max(0, paidNum - total);
@@ -12,7 +12,7 @@ export default function PaymentModal({ total, customer, onClose, onSubmit, loadi
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-surface border border-border rounded-2xl w-full max-w-sm p-6">
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-sm p-6 max-h-[90vh] overflow-auto">
         <h2 className="text-lg font-semibold mb-4">Pembayaran (F12)</h2>
 
         <div className="rounded-xl bg-primary-soft border border-primary/20 p-4 text-center mb-4">
@@ -37,6 +37,18 @@ export default function PaymentModal({ total, customer, onClose, onSubmit, loadi
         </div>
         {method === "kasbon" && !canKasbon && (
           <p className="text-xs text-danger mb-3">Pilih pelanggan dahulu untuk pembayaran kasbon.</p>
+        )}
+
+        {method === "transfer" && settings?.bank_transfer_info && (
+          <div className="rounded-lg bg-background border border-border p-3 mb-4 text-sm whitespace-pre-line">
+            {settings.bank_transfer_info}
+          </div>
+        )}
+
+        {method === "qris" && settings?.qris_image_url && (
+          <div className="flex justify-center mb-4">
+            <img src={settings.qris_image_url} alt="QRIS Toko" className="w-40 h-40 object-contain rounded-lg border border-border" />
+          </div>
         )}
 
         {method !== "kasbon" && (
