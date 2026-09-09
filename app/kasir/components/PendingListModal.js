@@ -2,14 +2,14 @@
 
 import { formatRupiah, formatDateTime } from "@/lib/format";
 
-export default function PendingListModal({ transactions, onRecall, onClose }) {
+export default function PendingListModal({ transactions, hotkeyLabel, onRecall, onClose }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div
         className="bg-surface border border-border rounded-2xl w-full max-w-md p-5 max-h-[80vh] overflow-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold mb-1">Transaksi Tertahan (F8)</h2>
+        <h2 className="text-lg font-semibold mb-1">Transaksi Tertahan ({hotkeyLabel || "F8"})</h2>
         <p className="text-xs text-ink-muted mb-4">Pilih transaksi untuk dipanggil kembali ke keranjang.</p>
         {transactions.length === 0 && (
           <p className="text-sm text-ink-muted text-center py-8">Tidak ada transaksi yang ditahan.</p>

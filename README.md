@@ -91,7 +91,7 @@ git push -u origin main
 
 - Login sebagai admin → menu **Pengguna** untuk membuat akun kasir.
 - Menu **Produk & Harga** untuk mengisi data barang.
-- Menu **Tampilan Kasir** untuk mengatur shortcut yang muncul di sidebar kasir.
+- Menu **Shortcut Kasir** untuk mengatur tombol keyboard aksi kasir (cari, ubah qty, tahan, panggil, bayar, buka laci).
 - Menu **Pengaturan Toko** untuk identitas toko & tampilan halaman login.
 
 ## Catatan Teknis & Batasan Versi Ini

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
 import { getPriceVariants, priceTypeLabel } from "@/lib/pricing";
 import { logActivity } from "@/lib/logActivity";
+import { openCashDrawer } from "@/lib/cashDrawer";
 import { useScanner, BARCODE_EVENT } from "@/components/ScannerProvider";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
@@ -18,11 +19,23 @@ import QtyModal from "./components/QtyModal";
 import PaymentModal from "./components/PaymentModal";
 import PendingListModal from "./components/PendingListModal";
 import CameraScannerModal from "./components/CameraScannerModal";
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen } from "lucide-react";
 
-export default function KasirApp({ profile, initialShift, products, shortcuts, customers, settings, pendingTransactions }) {
+export default function KasirApp({ profile, initialShift, products, customers, settings, pendingTransactions }) {
   const supabase = createClient();
   const router = useRouter();
+
+  const DEFAULT_HOTKEYS = { search: "F2", qty: "F4", hold: "F7", recall: "F8", pay: "F12", drawer: "F6" };
+  const hotkeys = { ...DEFAULT_HOTKEYS, ...(settings?.action_hotkeys || {}) };
+
+  const SYSTEM_ACTIONS = [
+    { key: "search", label: "Cari Barang", icon: Search },
+    { key: "qty", label: "Ubah Qty", icon: Hash },
+    { key: "hold", label: "Tahan Transaksi", icon: PauseCircle },
+    { key: "recall", label: "Panggil Transaksi Ditahan", icon: RotateCcw },
+    { key: "pay", label: "Bayar", icon: CreditCard },
+    { key: "drawer", label: "Buka Laci", icon: PackageOpen },
+  ];
 
   const [shift, setShift] = useState(initialShift);
   const [openingLoading, setOpeningLoading] = useState(false);
@@ -138,22 +151,27 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
     function onKeydownGlobal(e) {
       const tag = document.activeElement?.tagName;
       const isTyping = tag === "INPUT" || tag === "TEXTAREA";
+      const pressed = e.key.toUpperCase();
+      const match = (name) => pressed === (hotkeys[name] || "").toUpperCase();
 
-      if (e.key === "F2") {
+      if (match("search")) {
         e.preventDefault();
         searchRef.current?.focus();
-      } else if (e.key === "F4") {
+      } else if (match("qty")) {
         e.preventDefault();
         if (selectedIndex >= 0 && cart[selectedIndex]) setQtyModalItem(cart[selectedIndex]);
-      } else if (e.key === "F7") {
+      } else if (match("hold")) {
         e.preventDefault();
         holdTransaction();
-      } else if (e.key === "F8") {
+      } else if (match("recall")) {
         e.preventDefault();
         setPendingOpen(true);
-      } else if (e.key === "F12") {
+      } else if (match("pay")) {
         e.preventDefault();
         if (cart.length > 0) setPaymentOpen(true);
+      } else if (match("drawer")) {
+        e.preventDefault();
+        openCashDrawer().catch((err) => toast.error(err.message));
       } else if (e.key === "ArrowDown" && !isTyping) {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(cart.length - 1, i + 1));
@@ -170,21 +188,13 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
           e.preventDefault();
           if (confirm("Batalkan seluruh keranjang belanja?")) resetCart();
         }
-      } else if (!isTyping) {
-        // Hotkey kustom dari shortcut yang diatur admin (mis. tombol angka 1-9)
-        const match = shortcuts.find((sc) => sc.hotkey && sc.hotkey.toLowerCase() === e.key.toLowerCase());
-        if (match) {
-          e.preventDefault();
-          const p = products.find((pr) => pr.id === match.product_id);
-          if (p) handlePickProduct(p);
-        }
       }
     }
 
     window.addEventListener("keydown", onKeydownGlobal);
     return () => window.removeEventListener("keydown", onKeydownGlobal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, selectedIndex, shortcuts]);
+  }, [cart, selectedIndex, hotkeys]);
 
   function removeItem(index) {
     setCart((prev) => prev.filter((_, i) => i !== index));
@@ -398,27 +408,24 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-3 space-y-1.5">
-          <div className="flex items-center justify-between px-1 mb-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Shortcut Kasir</p>
+        <div className="flex-1 overflow-auto p-3">
+          {/* Shortcut Aksi Sistem: F2/F4/F7/F8/F12/F6, bisa diatur admin */}
+          <div className="flex items-center justify-between px-1 mb-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Shortcut Aksi</p>
             <span className="text-[10px] text-ink-muted italic">diatur admin</span>
           </div>
-          {shortcuts.map((sc) => (
-            <button
-              key={sc.id}
-              onClick={() => {
-                const p = products.find((pr) => pr.id === sc.product_id);
-                if (p) handlePickProduct(p);
-              }}
-              className="w-full flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:border-primary hover:bg-primary-soft transition"
-            >
-              <span className="truncate">{sc.label}</span>
-              {sc.hotkey && <span className="kbd shrink-0">{sc.hotkey}</span>}
-            </button>
-          ))}
-          {shortcuts.length === 0 && (
-            <p className="text-xs text-ink-muted p-2">Belum ada shortcut. Admin dapat menambah di menu Pengaturan Kasir.</p>
-          )}
+          <div className="space-y-1">
+            {SYSTEM_ACTIONS.map((a) => {
+              const Icon = a.icon;
+              return (
+                <div key={a.key} className="w-full flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm bg-background">
+                  <Icon size={15} className="text-ink-muted shrink-0" />
+                  <span className="flex-1 truncate">{a.label}</span>
+                  <span className="kbd shrink-0">{hotkeys[a.key]}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="p-3 border-t border-border space-y-1.5">
@@ -442,7 +449,7 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
           <button
             onClick={() => {
               if (cart.length > 0) {
-                toast.error("Selesaikan atau tahan (F7) keranjang dahulu sebelum menutup shift");
+                toast.error(`Selesaikan atau tahan (${hotkeys.hold}) keranjang dahulu sebelum menutup shift`);
                 return;
               }
               setCloseShiftOpen(true);
@@ -467,7 +474,7 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
             onKeyDown={(e) => {
               if (e.key === "Enter" && searchResults[0]) handlePickProduct(searchResults[0]);
             }}
-            placeholder="Cari nama barang... (F2)"
+            placeholder={`Cari nama barang... (${hotkeys.search})`}
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
           />
           <select
@@ -559,18 +566,8 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
               disabled={cart.length === 0}
               className="bg-primary text-white rounded-lg px-6 py-2.5 text-sm font-medium hover:bg-primary-hover disabled:opacity-40"
             >
-              Bayar (F12)
+              Bayar ({hotkeys.pay})
             </button>
-          </div>
-          <div className="flex flex-wrap gap-2 text-[11px] text-ink-muted">
-            <span><span className="kbd">F2</span> Cari Barang</span>
-            <span><span className="kbd">F4</span> Ubah Qty</span>
-            <span><span className="kbd">F7</span> Tahan</span>
-            <span><span className="kbd">F8</span> Panggil</span>
-            <span><span className="kbd">F12</span> Bayar</span>
-            <span><span className="kbd">↑</span><span className="kbd">↓</span> Pilih Baris</span>
-            <span><span className="kbd">Del</span> Hapus Baris</span>
-            <span><span className="kbd">Esc</span> Reset Keranjang</span>
           </div>
         </div>
       </main>
@@ -602,6 +599,7 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
           total={totals.total}
           customer={customer}
           settings={settings}
+          hotkeyLabel={hotkeys.pay}
           onClose={() => setPaymentOpen(false)}
           onSubmit={handleCheckout}
           loading={checkoutLoading}
@@ -611,6 +609,7 @@ export default function KasirApp({ profile, initialShift, products, shortcuts, c
       {pendingOpen && (
         <PendingListModal
           transactions={pendingList}
+          hotkeyLabel={hotkeys.recall}
           onRecall={recallTransaction}
           onClose={() => setPendingOpen(false)}
         />

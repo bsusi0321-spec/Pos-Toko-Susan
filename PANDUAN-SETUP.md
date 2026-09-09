@@ -109,7 +109,7 @@ Ganti `USERNAME_ANDA` dan `pos-kasir-toko` sesuai punya Anda. Saat diminta login
    - **Pengaturan Toko** → isi nama toko, alamat, dan tampilan halaman login.
    - **Produk & Harga** → tambahkan barang-barang toko (bisa isi harga grosir/kiloan sekalian).
    - **Pengguna** → buat akun kasir untuk setiap karyawan, tentukan modal awal masing-masing.
-   - **Tampilan Kasir** → atur tombol shortcut yang muncul di sidebar kasir.
+   - **Shortcut Kasir** → atur tombol keyboard aksi kasir (cari, ubah qty, tahan, panggil, bayar, buka laci).
    - **Supplier** & **Pelanggan** → isi data jika diperlukan.
 3. Minta kasir login pakai akun masing-masing di komputer/HP kasir — halaman kasir akan otomatis meminta konfirmasi modal awal saat pertama login setiap shift.
 

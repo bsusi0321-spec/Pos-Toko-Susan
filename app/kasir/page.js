@@ -22,7 +22,7 @@ export default async function KasirPage() {
     .limit(1)
     .maybeSingle();
 
-  const [{ data: products }, { data: shortcuts }, { data: customers }, { data: settings }, { data: pendingTx }] =
+  const [{ data: products }, { data: customers }, { data: settings }, { data: pendingTx }] =
     await Promise.all([
       supabase
         .from("products")
@@ -31,7 +31,6 @@ export default async function KasirPage() {
         )
         .eq("active", true)
         .order("name"),
-      supabase.from("cashier_shortcuts").select("*, products(name, sell_price)").order("sort_order"),
       supabase.from("customers").select("*").eq("active", true).order("name"),
       supabase.from("store_settings").select("*").eq("id", 1).single(),
       supabase
@@ -47,7 +46,6 @@ export default async function KasirPage() {
       profile={profile}
       initialShift={openShift || null}
       products={products || []}
-      shortcuts={shortcuts || []}
       customers={customers || []}
       settings={settings || null}
       pendingTransactions={pendingTx || []}

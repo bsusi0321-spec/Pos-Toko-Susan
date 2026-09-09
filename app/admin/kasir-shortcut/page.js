@@ -3,16 +3,23 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
-import { Button, Card, Input, Select, EmptyState } from "@/components/ui/kit";
+import { Button, Card, Input } from "@/components/ui/kit";
+import { Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen } from "lucide-react";
+
+const ACTIONS = [
+  { key: "search", label: "Cari Barang", desc: "Fokus ke kolom pencarian produk (kalau barcode/scanner error)", icon: Search },
+  { key: "qty", label: "Ubah Qty", desc: "Ubah jumlah item yang sedang dipilih di keranjang", icon: Hash },
+  { key: "hold", label: "Tahan Transaksi", desc: "Menahan keranjang saat ini, kosongkan layar untuk transaksi lain", icon: PauseCircle },
+  { key: "recall", label: "Panggil Transaksi Ditahan", desc: "Memanggil kembali transaksi yang sebelumnya ditahan", icon: RotateCcw },
+  { key: "pay", label: "Bayar", desc: "Langsung buka jendela pembayaran / checkout", icon: CreditCard },
+  { key: "drawer", label: "Buka Laci", desc: "Membuka laci kasir lewat printer thermal yang terhubung", icon: PackageOpen },
+];
+
+const DEFAULTS = { search: "F2", qty: "F4", hold: "F7", recall: "F8", pay: "F12", drawer: "F6" };
 
 export default function KasirShortcutPage() {
   const supabase = createClient();
-  const [shortcuts, setShortcuts] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [label, setLabel] = useState("");
-  const [productId, setProductId] = useState("");
-  const [hotkey, setHotkey] = useState("");
+  const [hotkeys, setHotkeys] = useState(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -20,34 +27,20 @@ export default function KasirShortcutPage() {
   }, []);
 
   async function load() {
-    setLoading(true);
-    const [{ data: sc }, { data: p }] = await Promise.all([
-      supabase.from("cashier_shortcuts").select("*, products(name)").order("sort_order"),
-      supabase.from("products").select("id, name, sell_price").eq("active", true).order("name"),
-    ]);
-    setShortcuts(sc || []);
-    setProducts(p || []);
-    setLoading(false);
+    const { data } = await supabase.from("store_settings").select("action_hotkeys").eq("id", 1).single();
+    setHotkeys({ ...DEFAULTS, ...(data?.action_hotkeys || {}) });
   }
 
-  async function addShortcut() {
-    if (!label || !productId) return toast.error("Isi nama tombol dan pilih barang");
-    if (hotkey && shortcuts.some((s) => s.hotkey?.toLowerCase() === hotkey.toLowerCase())) {
-      return toast.error("Hotkey ini sudah dipakai shortcut lain");
-    }
+  async function save() {
+    const values = Object.values(hotkeys).map((v) => v.toUpperCase());
+    const hasDuplicate = new Set(values).size !== values.length;
+    if (hasDuplicate) return toast.error("Ada tombol yang dipakai dua kali — tiap aksi harus punya tombol berbeda");
+
     setSaving(true);
     try {
-      await supabase.from("cashier_shortcuts").insert({
-        label,
-        product_id: productId,
-        hotkey: hotkey || null,
-        sort_order: shortcuts.length,
-      });
-      toast.success("Shortcut ditambahkan");
-      setLabel("");
-      setProductId("");
-      setHotkey("");
-      load();
+      const { error } = await supabase.from("store_settings").update({ action_hotkeys: hotkeys }).eq("id", 1);
+      if (error) throw error;
+      toast.success("Shortcut aksi kasir disimpan");
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -55,68 +48,57 @@ export default function KasirShortcutPage() {
     }
   }
 
-  async function removeShortcut(id) {
-    if (!confirm("Hapus shortcut ini?")) return;
-    await supabase.from("cashier_shortcuts").delete().eq("id", id);
-    load();
-  }
-
-  async function updateHotkey(id, value) {
-    await supabase.from("cashier_shortcuts").update({ hotkey: value || null }).eq("id", id);
-    load();
-  }
+  if (!hotkeys) return <p className="text-sm text-ink-muted">Memuat...</p>;
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold">Tampilan Kasir & Shortcut</h1>
+        <h1 className="text-xl font-semibold">Shortcut Kasir</h1>
         <p className="text-sm text-ink-muted">
-          Tombol pintasan (shortcut) ini yang tampil di sidebar halaman kasir — kasir hanya melihat
-          sidebar ini dan keranjang belanja, semua isinya diatur dari sini oleh admin. Hotkey opsional
-          membuat shortcut bisa dipicu langsung dari keyboard (mis. tombol angka 1-9), selain diklik.
+          Atur tombol keyboard untuk aksi-aksi penting di layar kasir — buka laci, tahan transaksi,
+          panggil transaksi yang ditahan, cari produk (kalau barcode/scanner bermasalah), dan bayar.
+          Tampil sebagai daftar di sidebar halaman kasir, di sebelah keranjang.
         </p>
       </div>
 
-      <Card title="Tambah Shortcut">
-        <div className="grid sm:grid-cols-4 gap-3">
-          <Input label="Nama Tombol" placeholder="mis. Gula 1kg" value={label} onChange={(e) => setLabel(e.target.value)} />
-          <Select label="Barang" value={productId} onChange={(e) => setProductId(e.target.value)}>
-            <option value="">-- pilih barang --</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
-          <Input label="Hotkey (opsional)" placeholder="mis. 1" maxLength={1} value={hotkey} onChange={(e) => setHotkey(e.target.value)} />
-          <div className="flex items-end">
-            <Button onClick={addShortcut} disabled={saving} className="w-full">{saving ? "Menyimpan..." : "+ Tambah"}</Button>
-          </div>
-        </div>
-        <p className="text-xs text-ink-muted mt-2">Hotkey berupa 1 karakter (angka atau huruf), harus unik antar shortcut.</p>
-      </Card>
-
-      <Card title="Daftar Shortcut Aktif">
-        {loading ? <p className="text-sm text-ink-muted">Memuat...</p> : shortcuts.length === 0 ? (
-          <EmptyState text="Belum ada shortcut. Tambahkan di atas." />
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {shortcuts.map((s) => (
-              <div key={s.id} className="border border-border rounded-lg px-3 py-2.5">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div>
-                    <p className="text-sm font-medium">{s.label}</p>
-                    <p className="text-xs text-ink-muted">{s.products?.name}</p>
-                  </div>
-                  <button onClick={() => removeShortcut(s.id)} className="text-xs text-danger hover:underline">Hapus</button>
+      <Card title="Tombol untuk Tiap Aksi">
+        <div className="space-y-3">
+          {ACTIONS.map((a) => {
+            const Icon = a.icon;
+            return (
+              <div key={a.key} className="flex items-center gap-4 border border-border rounded-xl px-4 py-3">
+                <Icon size={18} className="text-ink-muted shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{a.label}</p>
+                  <p className="text-xs text-ink-muted">{a.desc}</p>
                 </div>
-                <input
-                  defaultValue={s.hotkey || ""}
-                  maxLength={1}
-                  placeholder="hotkey"
-                  onBlur={(e) => updateHotkey(s.id, e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+                <Input
+                  value={hotkeys[a.key] || ""}
+                  onChange={(e) => setHotkeys({ ...hotkeys, [a.key]: e.target.value.toUpperCase() })}
+                  className="w-24 shrink-0"
+                  placeholder="mis. F2"
                 />
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
+        <p className="text-xs text-ink-muted mt-3">
+          Gunakan nama tombol keyboard standar, mis. <code>F2</code>, <code>F6</code>, <code>F12</code>.
+          Tiap aksi harus punya tombol yang berbeda.
+        </p>
+        <div className="flex justify-end mt-4">
+          <Button onClick={save} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Shortcut"}</Button>
+        </div>
+      </Card>
+
+      <Card title="Catatan: Buka Laci">
+        <p className="text-sm text-ink-muted">
+          Fitur "Buka Laci" mengirim perintah langsung ke printer struk thermal yang punya port
+          untuk laci (RJ11) — cara ini yang umum dipakai laci kasir. Ini hanya berjalan di browser
+          <strong> Chrome atau Edge di komputer/laptop</strong> (belum didukung di HP atau Safari/Firefox).
+          Saat pertama kali dipakai, kasir akan diminta memilih printer/port sekali — setelah itu
+          browser akan mengingatnya otomatis.
+        </p>
       </Card>
     </div>
   );

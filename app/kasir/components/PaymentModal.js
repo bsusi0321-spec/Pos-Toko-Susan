@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { formatRupiah } from "@/lib/format";
 
-export default function PaymentModal({ total, customer, settings, onClose, onSubmit, loading }) {
+export default function PaymentModal({ total, customer, settings, hotkeyLabel, onClose, onSubmit, loading }) {
   const [method, setMethod] = useState("tunai");
   const [paid, setPaid] = useState(String(total));
   const paidNum = parseFloat(paid) || 0;
@@ -13,7 +13,7 @@ export default function PaymentModal({ total, customer, settings, onClose, onSub
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-surface border border-border rounded-2xl w-full max-w-sm p-6 max-h-[90vh] overflow-auto">
-        <h2 className="text-lg font-semibold mb-4">Pembayaran (F12)</h2>
+        <h2 className="text-lg font-semibold mb-4">Pembayaran ({hotkeyLabel || "F12"})</h2>
 
         <div className="rounded-xl bg-primary-soft border border-primary/20 p-4 text-center mb-4">
           <p className="text-xs text-ink-muted mb-1">Total Tagihan</p>

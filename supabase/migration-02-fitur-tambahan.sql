@@ -3,8 +3,8 @@
 -- (setelah schema.sql utama sudah pernah dijalankan sebelumnya)
 -- ============================================================
 
--- 1) Hotkey untuk shortcut kasir (mis. tombol angka 1-9 di keyboard)
-alter table cashier_shortcuts add column if not exists hotkey text;
+-- 1) (dihapus) shortcut produk di sidebar kasir tidak lagi dipakai — digantikan
+--    sepenuhnya oleh Shortcut Aksi Sistem (lihat poin 5 di bawah) dan barcode scanner.
 
 -- 2) Info pembayaran manual (transfer & QRIS) untuk ditampilkan saat checkout
 alter table store_settings add column if not exists bank_transfer_info text;
@@ -48,3 +48,8 @@ create table if not exists archive_runs (
 alter table archive_runs enable row level security;
 create policy "archive_runs_select" on archive_runs for select using (is_admin());
 create policy "archive_runs_insert" on archive_runs for insert with check (is_active_user());
+
+-- 5) Hotkey untuk AKSI SISTEM kasir (beda dari shortcut produk) — bisa diubah admin,
+--    contoh: F2 untuk fokus ke kolom pencarian produk.
+alter table store_settings add column if not exists action_hotkeys jsonb not null default
+  '{"search": "F2", "qty": "F4", "hold": "F7", "recall": "F8", "pay": "F12"}'::jsonb;
