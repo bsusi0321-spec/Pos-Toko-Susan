@@ -30,6 +30,10 @@ export default function KasbonPage() {
 
   async function submitPayment() {
     if (!payAmount || Number(payAmount) <= 0) return toast.error("Isi nominal pembayaran");
+    const sisaHutang = Number(payModal.amount) - Number(payModal.paid_amount);
+    if (Number(payAmount) > sisaHutang) {
+      return toast.error(`Nominal melebihi sisa hutang (${formatRupiah(sisaHutang)}). Periksa kembali.`);
+    }
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();

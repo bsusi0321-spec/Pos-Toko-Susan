@@ -32,7 +32,7 @@ import { formatRupiah } from "@/lib/format";
 
 const NAV = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/kasir", label: "Buka Kasir", icon: ShoppingBag },
+  { href: "/admin/kasir", label: "Buka Kasir", icon: ShoppingBag },
   { href: "/admin/kasir-shortcut", label: "Shortcut Kasir", icon: Keyboard },
   { href: "/admin/kasbon", label: "Kasbon Pelanggan", icon: Wallet },
   { href: "/admin/retur", label: "Retur Barang", icon: Undo2 },

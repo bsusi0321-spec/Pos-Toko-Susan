@@ -5,6 +5,13 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
 
 ## Fitur
 
+- Ganti jenis penjualan (eceran/grosir/½ grosir/kg dst.) langsung dari baris keranjang,
+  tanpa perlu hapus dan tambah ulang barangnya.
+- Admin bisa membuka layar kasir atas nama akun kasir manapun lewat menu **Buka Kasir**.
+- Laba bersih harian & laporan hutang ke supplier (status LUNAS-Transfer/LUNAS-Cash) di Dashboard.
+- Validasi mencegah transaksi merugikan: jual melebihi stok, pembayaran kurang, harga jual
+  di bawah modal, koreksi stok melebihi stok tersedia, pembayaran kasbon/hutang supplier
+  melebihi sisa tagihan, dan kasbon melebihi limit pelanggan.
 - Halaman Kasir: sidebar shortcut (diatur admin), keranjang, shortkey lengkap
   (F2 cari barang, F4 ubah qty, F7 tahan transaksi, F8 panggil transaksi tertahan,
   F12 bayar, panah atas/bawah navigasi baris, Delete hapus baris, Esc reset keranjang),
@@ -34,7 +41,7 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
 
 1. Buat project baru di https://supabase.com.
 2. Buka **SQL Editor**, jalankan seluruh isi file `supabase/schema.sql` (satu kali).
-3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql` (satu kali, setelah schema.sql).
+3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql`, lalu `supabase/migration-03-perbaikan.sql` (satu kali, berurutan).
 3. Buka **Authentication > Users > Add user**, buat akun admin pertama:
    - Email: `namaadmin@kasir.local` (format ini dipakai karena aplikasi login
      dengan **username**, bukan email — sistem menambahkan `@kasir.local` otomatis)

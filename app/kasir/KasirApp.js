@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
-import { getPriceVariants, priceTypeLabel } from "@/lib/pricing";
+import { getPriceVariants } from "@/lib/pricing";
 import { logActivity } from "@/lib/logActivity";
 import { openCashDrawer } from "@/lib/cashDrawer";
 import { useScanner, BARCODE_EVENT } from "@/components/ScannerProvider";
@@ -21,7 +21,7 @@ import PendingListModal from "./components/PendingListModal";
 import CameraScannerModal from "./components/CameraScannerModal";
 import { Volume2, VolumeX, Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen } from "lucide-react";
 
-export default function KasirApp({ profile, initialShift, products, customers, settings, pendingTransactions }) {
+export default function KasirApp({ profile, isAdminAccount, impersonating, initialShift, products, customers, settings, pendingTransactions }) {
   const supabase = createClient();
   const router = useRouter();
 
@@ -247,6 +247,21 @@ export default function KasirApp({ profile, initialShift, products, customers, s
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, qty: newQty } : it)));
   }
 
+  function changeCartItemVariant(index, priceType) {
+    const item = cart[index];
+    const product = products.find((p) => p.id === item.product_id);
+    if (!product) return;
+    const variant = getPriceVariants(product).find((v) => v.price_type === priceType);
+    if (!variant) return;
+    setCart((prev) =>
+      prev.map((it, i) =>
+        i === index
+          ? { ...it, price_type: variant.price_type, unit_price: variant.unit_price, stock_factor: variant.stock_factor }
+          : it
+      )
+    );
+  }
+
   // ---------- Mulai shift ----------
   async function handleOpenShift(notes) {
     setOpeningLoading(true);
@@ -337,6 +352,37 @@ export default function KasirApp({ profile, initialShift, products, customers, s
 
   // ---------- Checkout (F12 submit) ----------
   async function handleCheckout({ method, paid, change }) {
+    // Cegah menjual melebihi stok yang tersedia — jangan pernah izinkan checkout kalau begitu.
+    const insufficient = [];
+    for (const i of cart) {
+      const product = products.find((p) => p.id === i.product_id);
+      const qtyOut = i.qty * i.stock_factor;
+      if (product && qtyOut > Number(product.stock_qty)) {
+        insufficient.push(`${product.name} (stok ${formatNumber(product.stock_qty, 2)}, diminta ${formatNumber(qtyOut, 2)})`);
+      }
+    }
+    if (insufficient.length > 0) {
+      toast.error(`Stok tidak cukup: ${insufficient.join(", ")}`, { duration: 5000 });
+      return;
+    }
+
+    // Cegah kasbon melebihi limit pelanggan (kalau limit diatur, 0 = tanpa batas)
+    if (method === "kasbon" && customer?.kasbon_limit > 0) {
+      const { data: existingKasbon } = await supabase
+        .from("kasbon")
+        .select("amount, paid_amount")
+        .eq("customer_id", customer.id)
+        .eq("status", "belum_lunas");
+      const currentOutstanding = (existingKasbon || []).reduce((s, k) => s + (Number(k.amount) - Number(k.paid_amount)), 0);
+      if (currentOutstanding + totals.total > Number(customer.kasbon_limit)) {
+        toast.error(
+          `Melebihi limit kasbon pelanggan (limit ${formatRupiah(customer.kasbon_limit)}, sudah ada hutang ${formatRupiah(currentOutstanding)})`,
+          { duration: 5000 }
+        );
+        return;
+      }
+    }
+
     setCheckoutLoading(true);
     try {
       const { data: tx, error } = await supabase
@@ -416,6 +462,12 @@ export default function KasirApp({ profile, initialShift, products, customers, s
   }
 
   async function handleLogout() {
+    if (impersonating) {
+      // Admin sedang membuka kasir atas nama akun lain — kembali ke halaman pilih kasir,
+      // JANGAN sign-out karena sesi login sesungguhnya tetap admin.
+      router.push("/admin/kasir");
+      return;
+    }
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
@@ -432,6 +484,7 @@ export default function KasirApp({ profile, initialShift, products, customers, s
         <div className="p-4 border-b border-border">
           <p className="text-sm font-semibold truncate">{settings?.store_name || "Toko"}</p>
           <p className="text-xs text-ink-muted truncate">{profile.full_name}</p>
+          {impersonating && <p className="text-[10px] text-primary mt-0.5">Dibuka oleh admin</p>}
           <div className="flex items-center gap-1.5 mt-2">
             <span className={`h-2 w-2 rounded-full ${physicalActive || phoneConnected ? "bg-primary" : "bg-danger"}`} />
             <span className="text-[11px] text-ink-muted">
@@ -494,9 +547,9 @@ export default function KasirApp({ profile, initialShift, products, customers, s
             Tutup Shift
           </button>
           <button onClick={handleLogout} className="w-full rounded-lg px-3 py-2 text-xs font-medium text-danger hover:bg-danger-soft">
-            Keluar (Tanpa Tutup Shift)
+            {impersonating ? "Kembali (Tanpa Tutup Shift)" : "Keluar (Tanpa Tutup Shift)"}
           </button>
-          {profile.role === "admin" && (
+          {isAdminAccount && (
             <button
               onClick={() => router.push("/admin/dashboard")}
               className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
@@ -570,7 +623,19 @@ export default function KasirApp({ profile, initialShift, products, customers, s
                   }`}
                 >
                   <td className="px-4 py-2.5">{item.name}</td>
-                  <td className="px-4 py-2.5 text-ink-muted text-xs">{priceTypeLabel(item.price_type)}</td>
+                  <td className="px-4 py-2.5 text-xs" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={item.price_type}
+                      onChange={(e) => changeCartItemVariant(index, e.target.value)}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/40 max-w-[150px]"
+                    >
+                      {getPriceVariants(products.find((p) => p.id === item.product_id) || {}).map((v) => (
+                        <option key={v.price_type} value={v.price_type}>
+                          {v.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td className="px-4 py-2.5 text-right">{formatRupiah(item.unit_price)}</td>
                   <td className="px-4 py-2.5 text-right">{formatNumber(item.qty, 2)}</td>
                   <td className="px-4 py-2.5 text-right font-medium">{formatRupiah(item.unit_price * item.qty)}</td>

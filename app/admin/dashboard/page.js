@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [lowStock, setLowStock] = useState([]);
   const [recent, setRecent] = useState([]);
   const [dailyTrend, setDailyTrend] = useState([]);
+  const [todayProfit, setTodayProfit] = useState(0);
+  const [supplierDebt, setSupplierDebt] = useState({ outstanding: [], totalOutstanding: 0, paidTransfer: 0, paidCash: 0 });
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export default function DashboardPage() {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
     sevenDaysAgo.setHours(0, 0, 0, 0);
 
-    const [{ data: tToday }, { data: tMonth }, { data: items }, { data: products }, { data: recentTx }, { data: trend }] =
+    const [{ data: tToday }, { data: tMonth }, { data: items }, { data: products }, { data: recentTx }, { data: trend }, { data: todayItems }, { data: pos }, { data: payments }] =
       await Promise.all([
         supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", today),
         supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", monthStart),
@@ -68,6 +70,16 @@ export default function DashboardPage() {
           .select("created_at, total")
           .eq("status", "completed")
           .gte("created_at", sevenDaysAgo.toISOString()),
+        supabase
+          .from("transaction_items")
+          .select("qty, subtotal, cost_price_snapshot")
+          .gte("created_at", today),
+        supabase
+          .from("purchase_orders")
+          .select("*, suppliers(name)")
+          .gt("remaining_debt", 0)
+          .order("created_at", { ascending: false }),
+        supabase.from("supplier_payments").select("amount, method"),
       ]);
 
     setTodayTx(tToday || []);
@@ -102,6 +114,17 @@ export default function DashboardPage() {
       if (dayMap.has(key)) dayMap.get(key).total += Number(t.total);
     });
     setDailyTrend(Array.from(dayMap.values()));
+
+    const profitToday = (todayItems || []).reduce(
+      (s, it) => s + (Number(it.subtotal) - Number(it.cost_price_snapshot) * Number(it.qty)),
+      0
+    );
+    setTodayProfit(profitToday);
+
+    const paidTransfer = (payments || []).filter((p) => p.method === "transfer").reduce((s, p) => s + Number(p.amount), 0);
+    const paidCash = (payments || []).filter((p) => p.method === "cash").reduce((s, p) => s + Number(p.amount), 0);
+    const totalOutstanding = (pos || []).reduce((s, p) => s + Number(p.remaining_debt), 0);
+    setSupplierDebt({ outstanding: pos || [], totalOutstanding, paidTransfer, paidCash });
 
     setLoading(false);
   }
@@ -147,8 +170,9 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard label="Penjualan Hari Ini" value={formatRupiah(todayRevenue)} hint={`${todayTx.length} transaksi`} tone="primary" />
+        <StatCard label="Laba Bersih Hari Ini" value={formatRupiah(todayProfit)} tone="primary" />
         <StatCard label="Penjualan Bulan Ini" value={formatRupiah(monthRevenue)} hint={`${monthTx.length} transaksi`} />
         <StatCard label="Estimasi Laba Bulan Ini" value={formatRupiah(monthProfit)} tone="primary" />
         <StatCard label="Stok Menipis" value={lowStock.length} tone={lowStock.length > 0 ? "danger" : "default"} hint="Perlu perhatian" />
@@ -223,6 +247,43 @@ export default function DashboardPage() {
           </div>
         </Card>
       )}
+
+      <Card title="Hutang ke Supplier">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          <StatCard label="Total Hutang Belum Lunas" value={formatRupiah(supplierDebt.totalOutstanding)} tone="danger" />
+          <StatCard label="Sudah Dibayar (Transfer)" value={formatRupiah(supplierDebt.paidTransfer)} />
+          <StatCard label="Sudah Dibayar (Cash)" value={formatRupiah(supplierDebt.paidCash)} />
+        </div>
+        {supplierDebt.outstanding.length === 0 ? (
+          <EmptyState text="Tidak ada hutang ke supplier yang belum lunas." />
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-ink-muted border-b border-border">
+                <tr>
+                  <th className="text-left py-2 pr-3 font-medium">Supplier</th>
+                  <th className="text-right py-2 pr-3 font-medium">Total Nota</th>
+                  <th className="text-right py-2 pr-3 font-medium">Sisa Hutang</th>
+                  <th className="text-left py-2 font-medium">Keterangan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplierDebt.outstanding.map((po) => (
+                  <tr key={po.id} className="border-b border-border last:border-0">
+                    <td className="py-2 pr-3">{po.suppliers?.name}</td>
+                    <td className="py-2 pr-3 text-right">{formatRupiah(po.total)}</td>
+                    <td className="py-2 pr-3 text-right text-danger font-medium">{formatRupiah(po.remaining_debt)}</td>
+                    <td className="py-2 text-ink-muted">Belum Lunas</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-xs text-ink-muted mt-3">
+          Catat pembayaran cicilan hutang supplier lewat menu Pembelian, pada nota yang bersangkutan.
+        </p>
+      </Card>
     </div>
   );
 }

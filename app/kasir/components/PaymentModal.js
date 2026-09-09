@@ -5,7 +5,7 @@ import { formatRupiah } from "@/lib/format";
 
 export default function PaymentModal({ total, customer, settings, hotkeyLabel, onClose, onSubmit, loading }) {
   const [method, setMethod] = useState("tunai");
-  const [paid, setPaid] = useState(String(total));
+  const [paid, setPaid] = useState("");
   const paidNum = parseFloat(paid) || 0;
   const change = method === "kasbon" ? 0 : Math.max(0, paidNum - total);
   const canKasbon = !!customer;

@@ -16,6 +16,9 @@ export default function PembelianPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [receiveOrder, setReceiveOrder] = useState(null);
+  const [payOrder, setPayOrder] = useState(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("cash");
   const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState({ supplier_id: "", due_date: "", notes: "", discount: "0", down_payment: "0" });
@@ -68,6 +71,9 @@ export default function PembelianPage() {
 
   async function submitOrder() {
     if (!form.supplier_id || items.length === 0) return toast.error("Pilih supplier dan tambahkan minimal 1 barang");
+    if ((Number(form.down_payment) || 0) > total) {
+      return toast.error("Uang muka tidak boleh lebih besar dari total pesanan");
+    }
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -102,6 +108,46 @@ export default function PembelianPage() {
       setModalOpen(false);
       setForm({ supplier_id: "", due_date: "", notes: "", discount: "0", down_payment: "0" });
       setItems([]);
+      load();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitSupplierPayment() {
+    const amount = Number(payAmount) || 0;
+    if (amount <= 0) return toast.error("Isi nominal pembayaran");
+    if (amount > Number(payOrder.remaining_debt)) {
+      return toast.error(`Nominal melebihi sisa hutang (${formatRupiah(payOrder.remaining_debt)}). Periksa kembali.`);
+    }
+    setSaving(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      await supabase.from("supplier_payments").insert({
+        purchase_order_id: payOrder.id,
+        amount,
+        method: payMethod,
+        paid_by: userData?.user?.id,
+      });
+
+      const newRemaining = Number(payOrder.remaining_debt) - amount;
+      const patch = { remaining_debt: newRemaining };
+      if (newRemaining <= 0) patch.payoff_method = payMethod;
+      await supabase.from("purchase_orders").update(patch).eq("id", payOrder.id);
+
+      await logActivity(supabase, {
+        userId: userData?.user?.id,
+        action: "pay_supplier_debt",
+        entity: "purchase_orders",
+        entityId: payOrder.id,
+        details: { amount, method: payMethod },
+      });
+
+      toast.success("Pembayaran hutang dicatat");
+      setPayOrder(null);
+      setPayAmount("");
       load();
     } catch (err) {
       toast.error(err.message);
@@ -162,7 +208,12 @@ export default function PembelianPage() {
                     <p className="text-sm font-medium">{o.suppliers?.name}</p>
                     <p className="text-xs text-ink-muted">{formatDateTime(o.created_at)} {o.due_date ? `· Jatuh tempo ${formatDate(o.due_date)}` : ""}</p>
                   </div>
-                  <Badge tone={o.status === "diterima" ? "primary" : "warning"}>{o.status === "diterima" ? "Diterima" : "Menunggu"}</Badge>
+                  <div className="flex gap-1.5">
+                    <Badge tone={o.status === "diterima" ? "primary" : "warning"}>{o.status === "diterima" ? "Diterima" : "Menunggu"}</Badge>
+                    {Number(o.remaining_debt) <= 0 && o.payoff_method && (
+                      <Badge tone="primary">LUNAS-{o.payoff_method === "transfer" ? "Transfer" : "Cash"}</Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="text-xs text-ink-muted mb-2">
                   {(o.purchase_order_items || []).map((it) => it.products?.name + " x" + it.qty).join(", ")}
@@ -170,11 +221,18 @@ export default function PembelianPage() {
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex gap-4">
                     <span>Total: <strong>{formatRupiah(o.total)}</strong></span>
-                    <span className="text-danger">Sisa hutang: <strong>{formatRupiah(o.remaining_debt)}</strong></span>
+                    {Number(o.remaining_debt) > 0 && (
+                      <span className="text-danger">Sisa hutang: <strong>{formatRupiah(o.remaining_debt)}</strong></span>
+                    )}
                   </div>
-                  {o.status !== "diterima" && (
-                    <Button variant="outline" onClick={() => setReceiveOrder(o)}>Terima Barang</Button>
-                  )}
+                  <div className="flex gap-2">
+                    {Number(o.remaining_debt) > 0 && (
+                      <Button variant="outline" onClick={() => { setPayOrder(o); setPayAmount(String(o.remaining_debt)); }}>Bayar Hutang</Button>
+                    )}
+                    {o.status !== "diterima" && (
+                      <Button variant="outline" onClick={() => setReceiveOrder(o)}>Terima Barang</Button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -248,6 +306,23 @@ export default function PembelianPage() {
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setReceiveOrder(null)}>Batal</Button>
             <Button onClick={() => markReceived(receiveOrder)} disabled={saving}>{saving ? "Memproses..." : "Konfirmasi Diterima"}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {payOrder && (
+        <Modal title={`Bayar Hutang - ${payOrder.suppliers?.name}`} onClose={() => setPayOrder(null)}>
+          <p className="text-sm text-ink-muted mb-3">
+            Sisa hutang saat ini: <span className="font-medium text-ink">{formatRupiah(payOrder.remaining_debt)}</span>
+          </p>
+          <Input label="Jumlah Bayar" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="mb-3" />
+          <Select label="Metode Pembayaran" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+            <option value="cash">Cash</option>
+            <option value="transfer">Transfer</option>
+          </Select>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setPayOrder(null)}>Batal</Button>
+            <Button onClick={submitSupplierPayment} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Pembayaran"}</Button>
           </div>
         </Modal>
       )}

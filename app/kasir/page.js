@@ -2,20 +2,35 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import KasirApp from "./KasirApp";
 
-export default async function KasirPage() {
+export default async function KasirPage({ searchParams }) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-  if (!profile || !profile.active) redirect("/login");
+  const { data: myProfile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+  if (!myProfile || !myProfile.active) redirect("/login");
+
+  // Admin bisa membuka layar kasir atas nama akun kasir tertentu lewat ?as=<id>,
+  // dipilih dari halaman Buka Kasir. Transaksi tercatat atas nama akun tersebut.
+  const params = await searchParams;
+  const asId = params?.as;
+  let profile = myProfile;
+  let impersonating = false;
+
+  if (asId && myProfile.role === "admin") {
+    const { data: targetProfile } = await supabase.from("profiles").select("*").eq("id", asId).eq("active", true).single();
+    if (targetProfile) {
+      profile = targetProfile;
+      impersonating = true;
+    }
+  }
 
   const { data: openShift } = await supabase
     .from("shifts")
     .select("*")
-    .eq("cashier_id", user.id)
+    .eq("cashier_id", profile.id)
     .eq("status", "open")
     .order("opening_time", { ascending: false })
     .limit(1)
@@ -35,7 +50,7 @@ export default async function KasirPage() {
       supabase
         .from("transactions")
         .select("*, transaction_items(*, products(name))")
-        .eq("cashier_id", user.id)
+        .eq("cashier_id", profile.id)
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
     ]);
@@ -43,6 +58,8 @@ export default async function KasirPage() {
   return (
     <KasirApp
       profile={profile}
+      isAdminAccount={myProfile.role === "admin"}
+      impersonating={impersonating}
       initialShift={openShift || null}
       products={products || []}
       customers={customers || []}

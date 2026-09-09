@@ -89,11 +89,14 @@ export default function StokPage() {
 
   async function submitCorrection() {
     if (!corrForm.product_id || !corrForm.qty) return toast.error("Pilih barang dan isi jumlah dikurangi");
+    const product = products.find((p) => p.id === corrForm.product_id);
+    const qty = Number(corrForm.qty);
+    if (qty > Number(product.stock_qty)) {
+      return toast.error(`Jumlah koreksi (${qty}) melebihi stok yang ada (${product.stock_qty}). Periksa kembali.`);
+    }
     setSaving(true);
     try {
-      const product = products.find((p) => p.id === corrForm.product_id);
-      const qty = Number(corrForm.qty);
-      const newStock = Math.max(0, Number(product.stock_qty) - qty);
+      const newStock = Number(product.stock_qty) - qty;
 
       await supabase.from("products").update({ stock_qty: newStock }).eq("id", corrForm.product_id);
       await supabase.from("stock_movements").insert({

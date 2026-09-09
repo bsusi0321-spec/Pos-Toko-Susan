@@ -35,21 +35,52 @@ export default function ProdukPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [extraBarcodes, setExtraBarcodes] = useState([]);
+  const [newBarcode, setNewBarcode] = useState("");
 
   useEffect(() => {
     load();
   }, []);
 
-  // Scan barcode global: kalau form tambah/edit produk sedang terbuka, isi kolom SKU/barcode-nya.
+  // Scan barcode global: kalau form tambah/edit produk sedang terbuka, isi kolom barcode tambahan.
   // Kalau form tertutup, pakai untuk langsung mencari produk di daftar.
   useBarcodeScan((code) => {
     if (modalOpen) {
-      setForm((f) => ({ ...f, sku: code }));
-      toast.success(`Kode "${code}" dimasukkan ke kolom SKU`, { id: "scan-fill" });
+      if (!form.id) {
+        // Produk baru: isi ke Barcode Utama/SKU dulu, karena itu yang langsung bisa dipakai.
+        setForm((f) => ({ ...f, sku: code }));
+        toast.success(`Kode "${code}" dimasukkan ke Barcode Utama`, { id: "scan-fill" });
+      } else {
+        setNewBarcode(code);
+        toast.success(`Kode "${code}" siap ditambahkan (klik tombol +)`, { id: "scan-fill" });
+      }
     } else {
       setSearch(code);
     }
   });
+
+  async function addExtraBarcode() {
+    if (!newBarcode.trim()) return;
+    if (!form.id) return toast.error("Simpan produk terlebih dahulu sebelum menambah barcode tambahan");
+    try {
+      const { data, error } = await supabase
+        .from("product_barcodes")
+        .insert({ product_id: form.id, barcode: newBarcode.trim() })
+        .select()
+        .single();
+      if (error) throw error;
+      setExtraBarcodes((prev) => [...prev, data]);
+      setNewBarcode("");
+      toast.success("Barcode ditambahkan");
+    } catch (err) {
+      toast.error(err.message || "Gagal menambah (barcode mungkin sudah dipakai)");
+    }
+  }
+
+  async function removeExtraBarcode(id) {
+    await supabase.from("product_barcodes").delete().eq("id", id);
+    setExtraBarcodes((prev) => prev.filter((b) => b.id !== id));
+  }
 
 
   async function load() {
@@ -57,7 +88,7 @@ export default function ProdukPage() {
     const { data } = await supabase
       .from("products")
       .select(
-        "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*)"
+        "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes(*)"
       )
       .order("created_at", { ascending: false });
     setProducts(data || []);
@@ -66,6 +97,8 @@ export default function ProdukPage() {
 
   function openNew() {
     setForm(emptyForm);
+    setExtraBarcodes([]);
+    setNewBarcode("");
     setModalOpen(true);
   }
 
@@ -92,12 +125,26 @@ export default function ProdukPage() {
       price_per_ons: k.price_per_ons || "",
       out_of_town_price: oot.price || "",
     });
+    setExtraBarcodes(p.product_barcodes || []);
+    setNewBarcode("");
     setModalOpen(true);
   }
 
   async function handleSave() {
     if (!form.name || form.sell_price === "") {
       toast.error("Nama dan harga jual wajib diisi");
+      return;
+    }
+    if (Number(form.sell_price) < Number(form.cost_price || 0)) {
+      toast.error("Harga jual eceran tidak boleh lebih rendah dari harga modal (akan rugi)");
+      return;
+    }
+    if (form.wholesale_price && form.wholesale_qty && Number(form.wholesale_price) < Number(form.cost_price || 0) * Number(form.wholesale_qty)) {
+      toast.error("Harga jual grosir tidak boleh lebih rendah dari total modal isi grosirnya (akan rugi)");
+      return;
+    }
+    if (form.half_wholesale_price && form.half_wholesale_qty && Number(form.half_wholesale_price) < Number(form.cost_price || 0) * Number(form.half_wholesale_qty)) {
+      toast.error("Harga jual setengah grosir tidak boleh lebih rendah dari total modal isinya (akan rugi)");
       return;
     }
     setSaving(true);
@@ -169,7 +216,15 @@ export default function ProdukPage() {
     }
   }
 
-  const filtered = products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = products.filter((p) => {
+    const q = search.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      p.name.toLowerCase().includes(q) ||
+      (p.sku || "").toLowerCase().includes(q) ||
+      (p.product_barcodes || []).some((b) => b.barcode.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div className="space-y-5">
@@ -233,8 +288,37 @@ export default function ProdukPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <Input label="Nama Produk" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              <Input label="SKU / Kode (opsional)" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+              <Input
+                label="Barcode Utama / SKU"
+                value={form.sku}
+                onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                hint="Ini yang dicocokkan saat scan barcode di kasir. Boleh diisi manual atau lewat scan."
+              />
             </div>
+
+            {form.id && (
+              <div className="border border-border rounded-xl p-4">
+                <p className="text-sm font-medium mb-1">Barcode Tambahan</p>
+                <p className="text-xs text-ink-muted mb-3">
+                  Kalau produk ini punya lebih dari satu barcode (mis. kemasan beda dari supplier lain),
+                  tambahkan di sini. Semuanya ikut dicek saat scan di kasir.
+                </p>
+                <div className="flex gap-2 mb-3">
+                  <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="Scan atau ketik kode barcode" className="flex-1" />
+                  <Button variant="outline" onClick={addExtraBarcode}>+ Tambah</Button>
+                </div>
+                {extraBarcodes.length > 0 && (
+                  <div className="space-y-1.5">
+                    {extraBarcodes.map((b) => (
+                      <div key={b.id} className="flex items-center justify-between text-sm bg-background rounded-lg px-3 py-1.5">
+                        <span className="font-mono">{b.barcode}</span>
+                        <button onClick={() => removeExtraBarcode(b.id)} className="text-xs text-danger hover:underline">Hapus</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <Select label="Tipe Produk" value={form.unit_type} onChange={(e) => setForm({ ...form, unit_type: e.target.value })}>
               <option value="unit">Produk Umum (satuan / grosir)</option>
