@@ -198,7 +198,7 @@ export default function PembelianPage() {
             <p className="text-sm font-medium mb-3">Barang Dipesan</p>
             <div className="grid sm:grid-cols-4 gap-2 mb-3">
               <Select value={itemDraft.product_id} onChange={(e) => setItemDraft({ ...itemDraft, product_id: e.target.value })} className="sm:col-span-2">
-                <option value="">-- pilih barang --</option>
+                <option value="">-- pilih barang (bisa scan barcode) --</option>
                 {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
               <Input type="number" placeholder="Qty" value={itemDraft.qty} onChange={(e) => setItemDraft({ ...itemDraft, qty: e.target.value })} />

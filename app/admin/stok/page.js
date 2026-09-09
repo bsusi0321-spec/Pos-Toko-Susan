@@ -129,7 +129,7 @@ export default function StokPage() {
       {tab === "masuk" && (
         <Card title="Catat Barang Masuk">
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Pilih Barang" value={inForm.product_id} onChange={(e) => setInForm({ ...inForm, product_id: e.target.value })}>
+            <Select label="Pilih Barang (bisa scan barcode)" value={inForm.product_id} onChange={(e) => setInForm({ ...inForm, product_id: e.target.value })}>
               <option value="">-- pilih --</option>
               {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </Select>
@@ -158,7 +158,7 @@ export default function StokPage() {
         <Card title="Koreksi / Barang Rusak">
           <p className="text-xs text-ink-muted mb-3">Pakai mode ini untuk barang rusak, susut, atau salah hitung.</p>
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Pilih Barang" value={corrForm.product_id} onChange={(e) => setCorrForm({ ...corrForm, product_id: e.target.value })}>
+            <Select label="Pilih Barang (bisa scan barcode)" value={corrForm.product_id} onChange={(e) => setCorrForm({ ...corrForm, product_id: e.target.value })}>
               <option value="">-- pilih --</option>
               {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </Select>

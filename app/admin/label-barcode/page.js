@@ -5,6 +5,8 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { Button, Card, Input, Select, Toggle, EmptyState } from "@/components/ui/kit";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
+import { printBarcodeLabels } from "@/lib/printBarcodeLabel";
+import { formatRupiah } from "@/lib/format";
 
 export default function LabelBarcodePage() {
   const supabase = createClient();
@@ -15,6 +17,8 @@ export default function LabelBarcodePage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ product_id: "", barcode: "", note: "", editingId: null });
   const [printQty, setPrintQty] = useState({});
+  const [printing, setPrinting] = useState(null);
+  const [storeName, setStoreName] = useState("");
 
   useEffect(() => {
     load();
@@ -29,14 +33,16 @@ export default function LabelBarcodePage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: s }, { data: p }, { data: b }] = await Promise.all([
+    const [{ data: s }, { data: p }, { data: b }, { data: store }] = await Promise.all([
       supabase.from("label_settings").select("*").eq("id", 1).single(),
       supabase.from("products").select("id, name, sell_price").eq("active", true).order("name"),
-      supabase.from("product_barcodes").select("*, products(name)").order("created_at", { ascending: false }),
+      supabase.from("product_barcodes").select("*, products(name, sell_price)").order("created_at", { ascending: false }),
+      supabase.from("store_settings").select("store_name").eq("id", 1).single(),
     ]);
     setSettings(s);
     setProducts(p || []);
     setBarcodes(b || []);
+    setStoreName(store?.store_name || "");
     setLoading(false);
   }
 
@@ -71,6 +77,24 @@ export default function LabelBarcodePage() {
       toast.error(err.message || "Gagal menyimpan (barcode mungkin sudah dipakai)");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePrint(b) {
+    setPrinting(b.id);
+    try {
+      await printBarcodeLabels({
+        storeName,
+        productName: b.products?.name || "-",
+        price: b.products?.sell_price ? formatRupiah(b.products.sell_price) : "",
+        barcode: b.barcode,
+        qty: printQty[b.id] || 1,
+        labelSettings: settings,
+      });
+    } catch (err) {
+      toast.error("Gagal mencetak: " + err.message);
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -142,7 +166,9 @@ export default function LabelBarcodePage() {
                     value={printQty[b.id] || ""}
                     onChange={(e) => setPrintQty({ ...printQty, [b.id]: e.target.value })}
                   />
-                  <Button variant="outline" onClick={() => window.print()}>Cetak</Button>
+                  <Button variant="outline" onClick={() => handlePrint(b)} disabled={printing === b.id}>
+                    {printing === b.id ? "Menyiapkan..." : "Cetak"}
+                  </Button>
                   <Button variant="ghost" onClick={() => setForm({ product_id: b.product_id, barcode: b.barcode, note: b.note || "", editingId: b.id })}>Edit</Button>
                   <Button variant="danger" onClick={() => deleteBarcode(b.id)}>Hapus</Button>
                 </div>
@@ -151,7 +177,9 @@ export default function LabelBarcodePage() {
           </div>
         )}
         <p className="text-xs text-ink-muted mt-3">
-          Catatan: tombol Cetak akan membuka dialog cetak browser sesuai ukuran label yang dipilih di atas. Untuk cetak massal, gunakan printer label thermal yang mendukung cetak dari browser.
+          Tombol Cetak hanya mencetak label (nama barang, harga, dan kode batang) sesuai ukuran
+          yang dipilih di atas — bukan seluruh tampilan aplikasi. Isi kolom "jml" untuk mencetak
+          beberapa label sekaligus untuk barang yang sama.
         </p>
       </Card>
     </div>

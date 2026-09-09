@@ -124,10 +124,45 @@ export default function KasirApp({ profile, initialShift, products, customers, s
     }
   }
 
-  function handleBarcodeInput(code) {
-    const product = products.find(
+  async function handleBarcodeInput(code) {
+    // Cek dulu di data yang sudah dimuat (cepat, tanpa jaringan)
+    let product = products.find(
       (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
     );
+
+    // Kalau tidak ketemu (mis. barang baru ditambahkan admin setelah kasir login),
+    // cek langsung ke database supaya tidak kelewat karena data di layar sudah usang.
+    if (!product) {
+      const { data } = await supabase
+        .from("products")
+        .select(
+          "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes(*)"
+        )
+        .eq("active", true)
+        .eq("sku", code);
+      const fresh = (data || []).find(
+        (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
+      );
+      if (fresh) {
+        product = fresh;
+        products.push(fresh); // simpan supaya scan berikutnya untuk barang sama tidak perlu query lagi
+      } else {
+        // barcode custom (product_barcodes) tidak bisa dicek lewat kolom sku, cek terpisah
+        const { data: viaBarcode } = await supabase
+          .from("products")
+          .select(
+            "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes!inner(*)"
+          )
+          .eq("active", true)
+          .eq("product_barcodes.barcode", code)
+          .maybeSingle();
+        if (viaBarcode) {
+          product = viaBarcode;
+          products.push(viaBarcode);
+        }
+      }
+    }
+
     if (product) {
       handlePickProduct(product);
     } else {
@@ -461,6 +496,14 @@ export default function KasirApp({ profile, initialShift, products, customers, s
           <button onClick={handleLogout} className="w-full rounded-lg px-3 py-2 text-xs font-medium text-danger hover:bg-danger-soft">
             Keluar (Tanpa Tutup Shift)
           </button>
+          {profile.role === "admin" && (
+            <button
+              onClick={() => router.push("/admin/dashboard")}
+              className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+            >
+              ← Kembali ke Admin
+            </button>
+          )}
         </div>
       </aside>
 

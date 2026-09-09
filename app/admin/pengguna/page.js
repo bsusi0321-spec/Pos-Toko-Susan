@@ -102,7 +102,7 @@ export default function PenggunaPage() {
                     <td className="py-2.5 pr-3">{u.full_name}</td>
                     <td className="py-2.5 pr-3 font-mono text-xs">{u.username}</td>
                     <td className="py-2.5 pr-3 capitalize">{u.role}</td>
-                    <td className="py-2.5 pr-3 text-right">{u.role === "kasir" ? formatRupiah(u.default_opening_cash) : "-"}</td>
+                    <td className="py-2.5 pr-3 text-right">{formatRupiah(u.default_opening_cash)}</td>
                     <td className="py-2.5 pr-3"><Badge tone={u.active ? "primary" : "default"}>{u.active ? "Aktif" : "Nonaktif"}</Badge></td>
                     <td className="py-2.5 text-right space-x-2">
                       <Button
@@ -140,9 +140,13 @@ export default function PenggunaPage() {
               <option value="kasir">Kasir — terbatas</option>
               <option value="admin">Admin — akses penuh</option>
             </Select>
-            {form.role === "kasir" && (
-              <Input label="Modal Awal (Rp)" type="number" value={form.default_opening_cash} onChange={(e) => setForm({ ...form, default_opening_cash: e.target.value })} />
-            )}
+            <Input
+              label="Modal Awal (Rp)"
+              type="number"
+              value={form.default_opening_cash}
+              onChange={(e) => setForm({ ...form, default_opening_cash: e.target.value })}
+              hint={form.role === "admin" ? "Dipakai kalau admin membuka layar Kasir sendiri." : undefined}
+            />
             <Input
               label={form.id ? "Password Baru (kosongkan jika tidak diubah)" : "Password"}
               type="password"
