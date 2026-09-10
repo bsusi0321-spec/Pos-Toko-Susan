@@ -17,3 +17,8 @@ alter table product_kg_pricing add column if not exists cost_per_ons numeric(14,
 --    kolom harga modal yang tepat, bukan cuma harga modal eceran.
 alter table purchase_order_items add column if not exists price_type text not null default 'retail'
   check (price_type in ('retail','grosir','half_grosir','kg','half_kg','ons'));
+
+-- 3) Harga jual baru per tingkatan, dicatat lewat Pesanan Pembelian saat ada
+--    perubahan harga dari supplier (opsional — kosong berarti tidak berubah,
+--    dipakai untuk memperbarui harga jual produk saat barang diterima).
+alter table purchase_order_items add column if not exists new_sell_price numeric(14,2);

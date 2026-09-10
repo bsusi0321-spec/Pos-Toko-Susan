@@ -13,6 +13,10 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
   setengah grosir) atau **Produk Timbang** (per Kg/1-2 Kg/Ons, tanpa harga eceran).
 - Pesanan Pembelian bisa memilih tingkatan harga yang dibeli dari supplier — saat barang
   diterima, harga modal produk (di tingkatan yang sesuai) ikut diperbarui otomatis.
+- Form Pesanan Pembelian menampilkan semua tingkatan harga sebagai kolom terpisah
+  (bukan dropdown) — isi grosir/setengah grosir otomatis diambil dari data produk,
+  dan tiap tingkatan punya kolom Harga Lama (pembanding) & Harga Baru (opsional,
+  kosongkan kalau harga dari supplier tidak berubah) untuk harga beli maupun jual.
 - Admin bisa membuka layar kasir atas nama akun kasir manapun lewat menu **Buka Kasir**.
 - Laba bersih harian & laporan hutang ke supplier (status LUNAS-Transfer/LUNAS-Cash) di Dashboard.
 - Validasi mencegah transaksi merugikan: jual melebihi stok, pembayaran kurang, harga jual
