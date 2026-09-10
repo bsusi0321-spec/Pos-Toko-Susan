@@ -105,7 +105,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           price_type: variant.price_type,
           unit_price: variant.unit_price,
           stock_factor: variant.stock_factor,
-          cost_price: Number(product.cost_price || 0),
+          cost_price: Number(variant.cost_basis ?? product.cost_price ?? 0),
           qty: 1,
         },
       ];
@@ -256,7 +256,13 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
     setCart((prev) =>
       prev.map((it, i) =>
         i === index
-          ? { ...it, price_type: variant.price_type, unit_price: variant.unit_price, stock_factor: variant.stock_factor }
+          ? {
+              ...it,
+              price_type: variant.price_type,
+              unit_price: variant.unit_price,
+              stock_factor: variant.stock_factor,
+              cost_price: Number(variant.cost_basis ?? it.cost_price ?? 0),
+            }
           : it
       )
     );

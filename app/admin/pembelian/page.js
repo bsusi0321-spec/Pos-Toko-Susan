@@ -5,8 +5,37 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDate, formatDateTime } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
+import { getPriceVariants } from "@/lib/pricing";
 import { Button, Card, Input, Modal, Select, Textarea, EmptyState, Badge } from "@/components/ui/kit";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
+
+// Tingkatan harga yang bisa dibeli dari supplier, per tipe produk.
+function purchaseTiers(product) {
+  if (!product) return [];
+  if (product.unit_type === "kg") {
+    return [
+      { price_type: "kg", label: "Per Kg" },
+      { price_type: "half_kg", label: "Per 1/2 Kg" },
+      { price_type: "ons", label: "Per Ons" },
+    ];
+  }
+  return [
+    { price_type: "retail", label: "Eceran (per pcs)" },
+    { price_type: "grosir", label: "Grosir (per paket)" },
+    { price_type: "half_grosir", label: "Setengah Grosir (per paket)" },
+  ];
+}
+
+// Berapa stok dasar (pcs/kg) bertambah untuk 1 qty pada tingkatan tertentu.
+function stockFactorFor(product, priceType) {
+  const variants = getPriceVariants(product);
+  const match = variants.find((v) => v.price_type === priceType);
+  if (match) return match.stock_factor;
+  // Fallback kalau produk belum punya harga jual di tingkatan itu (baru mau diisi lewat pembelian ini)
+  if (priceType === "half_kg") return 0.5;
+  if (priceType === "ons") return 0.1;
+  return 1;
+}
 
 export default function PembelianPage() {
   const supabase = createClient();
@@ -23,7 +52,7 @@ export default function PembelianPage() {
 
   const [form, setForm] = useState({ supplier_id: "", due_date: "", notes: "", discount: "0", down_payment: "0" });
   const [items, setItems] = useState([]);
-  const [itemDraft, setItemDraft] = useState({ product_id: "", qty: "1", unit_cost: "0" });
+  const [itemDraft, setItemDraft] = useState({ product_id: "", price_type: "retail", qty: "1", unit_cost: "0" });
 
   useEffect(() => {
     load();
@@ -36,17 +65,22 @@ export default function PembelianPage() {
       (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
     );
     if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-pembelian" });
-    setItemDraft((d) => ({ ...d, product_id: match.id }));
+    setItemDraft((d) => ({ ...d, product_id: match.id, price_type: match.unit_type === "kg" ? "kg" : "retail" }));
     toast.success(`Terpilih: ${match.name}`, { id: "scan-pembelian" });
   });
-
 
   async function load() {
     setLoading(true);
     const [{ data: o }, { data: s }, { data: p }] = await Promise.all([
       supabase.from("purchase_orders").select("*, suppliers(name), purchase_order_items(*, products(name))").order("created_at", { ascending: false }),
       supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
-      supabase.from("products").select("id, name, stock_qty, cost_price, sku, product_barcodes(barcode)").eq("active", true).order("name"),
+      supabase
+        .from("products")
+        .select(
+          "id, name, unit_type, stock_qty, cost_price, sku, product_barcodes(barcode), product_wholesale_pricing(*), product_kg_pricing(*)"
+        )
+        .eq("active", true)
+        .order("name"),
     ]);
     setOrders(o || []);
     setSuppliers(s || []);
@@ -58,11 +92,23 @@ export default function PembelianPage() {
   const total = Math.max(0, subtotal - (Number(form.discount) || 0));
   const remaining = Math.max(0, total - (Number(form.down_payment) || 0));
 
+  const selectedProduct = products.find((p) => p.id === itemDraft.product_id);
+
   function addItem() {
     if (!itemDraft.product_id || !itemDraft.qty) return toast.error("Pilih barang dan isi jumlah");
     const product = products.find((p) => p.id === itemDraft.product_id);
-    setItems([...items, { product_id: itemDraft.product_id, name: product?.name, qty: Number(itemDraft.qty), unit_cost: Number(itemDraft.unit_cost) }]);
-    setItemDraft({ product_id: "", qty: "1", unit_cost: "0" });
+    setItems([
+      ...items,
+      {
+        product_id: itemDraft.product_id,
+        name: product?.name,
+        price_type: itemDraft.price_type,
+        price_type_label: purchaseTiers(product).find((t) => t.price_type === itemDraft.price_type)?.label,
+        qty: Number(itemDraft.qty),
+        unit_cost: Number(itemDraft.unit_cost),
+      },
+    ]);
+    setItemDraft({ product_id: "", price_type: "retail", qty: "1", unit_cost: "0" });
   }
 
   function removeItem(idx) {
@@ -97,6 +143,7 @@ export default function PembelianPage() {
       const rows = items.map((i) => ({
         purchase_order_id: order.id,
         product_id: i.product_id,
+        price_type: i.price_type,
         qty: i.qty,
         unit_cost: i.unit_cost,
         subtotal: i.qty * i.unit_cost,
@@ -156,27 +203,52 @@ export default function PembelianPage() {
     }
   }
 
+  // Menerima barang: stok bertambah dalam satuan dasar (pcs/kg), dan harga modal
+  // yang diperbarui adalah yang SESUAI tingkatan yang dibeli — bukan selalu modal eceran.
   async function markReceived(order) {
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
       for (const item of order.purchase_order_items) {
         const product = products.find((p) => p.id === item.product_id);
-        const newStock = Number(product?.stock_qty || 0) + Number(item.qty);
-        await supabase.from("products").update({ stock_qty: newStock, cost_price: item.unit_cost }).eq("id", item.product_id);
+        if (!product) continue;
+        const factor = stockFactorFor(product, item.price_type);
+        const stockIncrement = Number(item.qty) * factor;
+        const newStock = Number(product.stock_qty || 0) + stockIncrement;
+
+        const productPatch = { stock_qty: newStock };
+        const w = product.product_wholesale_pricing?.[0] || product.product_wholesale_pricing;
+        const k = product.product_kg_pricing?.[0] || product.product_kg_pricing;
+
+        if (item.price_type === "retail") {
+          productPatch.cost_price = item.unit_cost;
+        } else if (item.price_type === "grosir") {
+          await supabase.from("product_wholesale_pricing").upsert({ product_id: product.id, ...w, wholesale_cost_price: item.unit_cost });
+        } else if (item.price_type === "half_grosir") {
+          await supabase.from("product_wholesale_pricing").upsert({ product_id: product.id, ...w, half_wholesale_cost_price: item.unit_cost });
+        } else if (item.price_type === "kg") {
+          productPatch.cost_price = item.unit_cost;
+          await supabase.from("product_kg_pricing").upsert({ product_id: product.id, ...k, cost_per_kg: item.unit_cost });
+        } else if (item.price_type === "half_kg") {
+          await supabase.from("product_kg_pricing").upsert({ product_id: product.id, ...k, cost_per_half_kg: item.unit_cost });
+        } else if (item.price_type === "ons") {
+          await supabase.from("product_kg_pricing").upsert({ product_id: product.id, ...k, cost_per_ons: item.unit_cost });
+        }
+
+        await supabase.from("products").update(productPatch).eq("id", item.product_id);
         await supabase.from("stock_movements").insert({
           product_id: item.product_id,
           movement_type: "pembelian",
-          qty: item.qty,
+          qty: stockIncrement,
           unit_cost: item.unit_cost,
           supplier_id: order.supplier_id,
-          note: `Pembelian PO ${order.id.slice(0, 8)}`,
+          note: `Pembelian PO ${order.id.slice(0, 8)} (${item.price_type})`,
           created_by: userData?.user?.id,
         });
       }
       await supabase.from("purchase_orders").update({ status: "diterima", received_at: new Date().toISOString() }).eq("id", order.id);
       await logActivity(supabase, { userId: userData?.user?.id, action: "receive_purchase_order", entity: "purchase_orders", entityId: order.id });
-      toast.success("Barang diterima, stok diperbarui");
+      toast.success("Barang diterima, stok & harga modal diperbarui");
       setReceiveOrder(null);
       load();
     } catch (err) {
@@ -216,7 +288,7 @@ export default function PembelianPage() {
                   </div>
                 </div>
                 <div className="text-xs text-ink-muted mb-2">
-                  {(o.purchase_order_items || []).map((it) => it.products?.name + " x" + it.qty).join(", ")}
+                  {(o.purchase_order_items || []).map((it) => `${it.products?.name} x${it.qty}`).join(", ")}
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex gap-4">
@@ -242,7 +314,10 @@ export default function PembelianPage() {
 
       {modalOpen && (
         <Modal title="Pesanan Pembelian Baru" onClose={() => setModalOpen(false)} wide>
-          <p className="text-xs text-ink-muted mb-3">Stok baru bertambah setelah barang diterima, bukan saat pesanan dibuat.</p>
+          <p className="text-xs text-ink-muted mb-3">
+            Stok baru bertambah setelah barang diterima, bukan saat pesanan dibuat. Harga modal produk
+            akan ikut ter-update otomatis sesuai tingkatan yang dipilih di bawah.
+          </p>
           <div className="grid sm:grid-cols-2 gap-3 mb-3">
             <Select label="Supplier" value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
               <option value="">-- pilih --</option>
@@ -254,10 +329,22 @@ export default function PembelianPage() {
 
           <div className="border border-border rounded-xl p-4 mb-4">
             <p className="text-sm font-medium mb-3">Barang Dipesan</p>
-            <div className="grid sm:grid-cols-4 gap-2 mb-3">
-              <Select value={itemDraft.product_id} onChange={(e) => setItemDraft({ ...itemDraft, product_id: e.target.value })} className="sm:col-span-2">
+            <div className="grid sm:grid-cols-5 gap-2 mb-3">
+              <Select
+                value={itemDraft.product_id}
+                onChange={(e) => {
+                  const prod = products.find((p) => p.id === e.target.value);
+                  setItemDraft({ ...itemDraft, product_id: e.target.value, price_type: prod?.unit_type === "kg" ? "kg" : "retail" });
+                }}
+                className="sm:col-span-2"
+              >
                 <option value="">-- pilih barang (bisa scan barcode) --</option>
                 {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+              <Select value={itemDraft.price_type} onChange={(e) => setItemDraft({ ...itemDraft, price_type: e.target.value })} disabled={!selectedProduct}>
+                {purchaseTiers(selectedProduct).map((t) => (
+                  <option key={t.price_type} value={t.price_type}>{t.label}</option>
+                ))}
               </Select>
               <Input type="number" placeholder="Qty" value={itemDraft.qty} onChange={(e) => setItemDraft({ ...itemDraft, qty: e.target.value })} />
               <Input type="number" placeholder="Modal/unit" value={itemDraft.unit_cost} onChange={(e) => setItemDraft({ ...itemDraft, unit_cost: e.target.value })} />
@@ -268,7 +355,7 @@ export default function PembelianPage() {
               <div className="mt-3 space-y-1.5">
                 {items.map((it, idx) => (
                   <div key={idx} className="flex items-center justify-between text-sm border-t border-border pt-1.5">
-                    <span>{it.name} x{it.qty}</span>
+                    <span>{it.name} <span className="text-ink-muted text-xs">({it.price_type_label})</span> x{it.qty}</span>
                     <div className="flex items-center gap-3">
                       <span>{formatRupiah(it.qty * it.unit_cost)}</span>
                       <button onClick={() => removeItem(idx)} className="text-xs text-danger">Hapus</button>
@@ -301,7 +388,9 @@ export default function PembelianPage() {
       {receiveOrder && (
         <Modal title="Konfirmasi Terima Barang" onClose={() => setReceiveOrder(null)}>
           <p className="text-sm text-ink-muted mb-4">
-            Stok untuk {receiveOrder.purchase_order_items?.length} jenis barang akan otomatis bertambah dan harga modal akan diperbarui sesuai nota ini.
+            Stok untuk {receiveOrder.purchase_order_items?.length} jenis barang akan otomatis bertambah
+            (dikonversi ke satuan dasar pcs/kg), dan harga modal per tingkatan yang dibeli akan diperbarui
+            sesuai nota ini.
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setReceiveOrder(null)}>Batal</Button>

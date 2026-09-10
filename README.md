@@ -7,6 +7,12 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
 
 - Ganti jenis penjualan (eceran/grosir/½ grosir/kg dst.) langsung dari baris keranjang,
   tanpa perlu hapus dan tambah ulang barangnya.
+- Harga beli (modal) terpisah untuk tiap tingkatan (eceran/grosir/setengah grosir/kiloan),
+  supaya laba dihitung dari modal yang benar-benar sesuai, bukan disamaratakan.
+- Tambah produk sekarang mulai dari pilih jenis dulu: **Produk PCS** (eceran/grosir/
+  setengah grosir) atau **Produk Timbang** (per Kg/1-2 Kg/Ons, tanpa harga eceran).
+- Pesanan Pembelian bisa memilih tingkatan harga yang dibeli dari supplier — saat barang
+  diterima, harga modal produk (di tingkatan yang sesuai) ikut diperbarui otomatis.
 - Admin bisa membuka layar kasir atas nama akun kasir manapun lewat menu **Buka Kasir**.
 - Laba bersih harian & laporan hutang ke supplier (status LUNAS-Transfer/LUNAS-Cash) di Dashboard.
 - Validasi mencegah transaksi merugikan: jual melebihi stok, pembayaran kurang, harga jual
@@ -41,7 +47,7 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
 
 1. Buat project baru di https://supabase.com.
 2. Buka **SQL Editor**, jalankan seluruh isi file `supabase/schema.sql` (satu kali).
-3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql`, lalu `supabase/migration-03-perbaikan.sql` (satu kali, berurutan).
+3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql`, lalu `supabase/migration-03-perbaikan.sql`, lalu `supabase/migration-04-harga-bertingkat.sql` (satu kali, berurutan).
 3. Buka **Authentication > Users > Add user**, buat akun admin pertama:
    - Email: `namaadmin@kasir.local` (format ini dipakai karena aplikasi login
      dengan **username**, bukan email — sistem menambahkan `@kasir.local` otomatis)
