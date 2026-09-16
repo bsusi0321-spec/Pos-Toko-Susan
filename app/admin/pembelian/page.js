@@ -7,6 +7,10 @@ import { formatRupiah, formatDate, formatDateTime } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
 import { Button, Card, Input, Modal, Select, Textarea, EmptyState, Badge } from "@/components/ui/kit";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
+import { useViewport } from "@/lib/useViewport";
+import CameraScanButton from "@/components/CameraScanButton";
+import { findProductByCode } from "@/lib/barcode";
+import { getBranchStock } from "@/lib/branchStock";
 
 // Susunan kolom tingkatan harga per tipe produk, lengkap dengan modal & harga jual
 // yang sudah ada di data produk (jadi tidak perlu diketik ulang, cukup lihat sebagai
@@ -56,42 +60,55 @@ export default function PembelianPage() {
   const [payMethod, setPayMethod] = useState("cash");
   const [saving, setSaving] = useState(false);
 
-  const [form, setForm] = useState({ supplier_id: "", due_date: "", notes: "", discount: "0", down_payment: "0" });
+  const [form, setForm] = useState({ supplier_id: "", branch_id: "", nota_number: "", due_date: "", notes: "", discount: "0", down_payment: "0", down_payment_method: "cash" });
   const [items, setItems] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [draftProductId, setDraftProductId] = useState("");
+  const { isMobile } = useViewport();
   const [draftTiers, setDraftTiers] = useState({}); // { [price_type]: { qty, newCost, newSell } }
+
+  // Koreksi / Rusak: kurangi jumlah barang yang SUDAH ditambahkan di daftar
+  // "Barang Dipesan" karena ada yang rusak saat diterima -- bukan pilih barang
+  // baru, tapi pilih dari barang yang sudah ada di daftar nota ini.
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionForm, setCorrectionForm] = useState({ itemIndex: "", qty: "", reason: "", linkSupplierReturn: false });
 
   useEffect(() => {
     load();
   }, []);
 
-  useBarcodeScan((code) => {
-    if (!modalOpen) return;
-    const match = products.find(
-      (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
-    );
+  function pickProductByCode(code) {
+    const match = findProductByCode(products, code);
     if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-pembelian" });
     setDraftProductId(match.id);
     setDraftTiers({});
     toast.success(`Terpilih: ${match.name}`, { id: "scan-pembelian" });
+  }
+
+  useBarcodeScan((code) => {
+    if (!modalOpen) return;
+    pickProductByCode(code);
   });
 
   async function load() {
     setLoading(true);
-    const [{ data: o }, { data: s }, { data: p }] = await Promise.all([
-      supabase.from("purchase_orders").select("*, suppliers(name), purchase_order_items(*, products(name))").order("created_at", { ascending: false }),
+    const [{ data: o }, { data: s }, { data: p }, { data: b }] = await Promise.all([
+      supabase.from("purchase_orders").select("*, suppliers(name), branches(name), purchase_order_items(*, products(name))").order("created_at", { ascending: false }),
       supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
       supabase
         .from("products")
         .select(
-          "id, name, unit_type, stock_qty, cost_price, sell_price, sku, product_barcodes(barcode), product_wholesale_pricing(*), product_kg_pricing(*)"
+          "id, name, unit_type, cost_price, sell_price, sku, product_barcodes(barcode), product_wholesale_pricing(*), product_kg_pricing(*), product_branch_stock(*)"
         )
         .eq("active", true)
         .order("name"),
+      supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
     ]);
     setOrders(o || []);
     setSuppliers(s || []);
     setProducts(p || []);
+    setBranches(b || []);
+    setForm((f) => ({ ...f, branch_id: f.branch_id || b?.[0]?.id || "" }));
     setLoading(false);
   }
 
@@ -126,6 +143,7 @@ export default function PembelianPage() {
         old_cost: Number(tier.oldCost || 0),
         new_sell_price: newSell,
         old_sell_price: Number(tier.oldSell || 0),
+        note: null,
       });
     }
     if (rowsToAdd.length === 0) return toast.error("Isi jumlah diterima di minimal satu tingkatan harga");
@@ -140,6 +158,7 @@ export default function PembelianPage() {
 
   async function submitOrder() {
     if (!form.supplier_id || items.length === 0) return toast.error("Pilih supplier dan tambahkan minimal 1 barang");
+    if (branches.length > 1 && !form.branch_id) return toast.error("Pilih cabang tujuan barang ini");
     if ((Number(form.down_payment) || 0) > total) {
       return toast.error("Uang muka tidak boleh lebih besar dari total pesanan");
     }
@@ -150,6 +169,8 @@ export default function PembelianPage() {
         .from("purchase_orders")
         .insert({
           supplier_id: form.supplier_id,
+          branch_id: form.branch_id || branches[0]?.id || null,
+          nota_number: form.nota_number || null,
           due_date: form.due_date || null,
           notes: form.notes || null,
           subtotal,
@@ -171,14 +192,33 @@ export default function PembelianPage() {
         unit_cost: i.unit_cost,
         new_sell_price: i.new_sell_price,
         subtotal: i.qty * i.unit_cost,
+        note: i.note || null,
       }));
       await supabase.from("purchase_order_items").insert(rows);
+
+      // Uang muka (kalau diisi) langsung dicatat sebagai pembayaran ke supplier,
+      // supaya ikut terhitung di Dashboard "Sudah Dibayar (Transfer)"/"Sudah Dibayar (Cash)".
+      const downPayment = Number(form.down_payment) || 0;
+      if (downPayment > 0) {
+        await supabase.from("supplier_payments").insert({
+          purchase_order_id: order.id,
+          amount: downPayment,
+          method: form.down_payment_method,
+          paid_by: userData?.user?.id,
+        });
+        if (remaining <= 0) {
+          await supabase.from("purchase_orders").update({ payoff_method: form.down_payment_method }).eq("id", order.id);
+        }
+      }
+
       await logActivity(supabase, { userId: userData?.user?.id, action: "create_purchase_order", entity: "purchase_orders", entityId: order.id });
 
       toast.success("Pesanan pembelian dibuat");
       setModalOpen(false);
-      setForm({ supplier_id: "", due_date: "", notes: "", discount: "0", down_payment: "0" });
+      setForm({ supplier_id: "", branch_id: form.branch_id, nota_number: "", due_date: "", notes: "", discount: "0", down_payment: "0", down_payment_method: "cash" });
       setItems([]);
+      setCorrectionOpen(false);
+      setCorrectionForm({ itemIndex: "", qty: "", reason: "", linkSupplierReturn: false });
       load();
     } catch (err) {
       toast.error(err.message);
@@ -225,14 +265,16 @@ export default function PembelianPage() {
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
+      const branchId = order.branch_id || branches[0]?.id || null;
       for (const item of order.purchase_order_items) {
         const product = products.find((p) => p.id === item.product_id);
         if (!product) continue;
         const tier = tiersForProduct(product).find((t) => t.price_type === item.price_type);
         const stockIncrement = Number(item.qty) * (tier?.stockFactor || 1);
-        const newStock = Number(product.stock_qty || 0) + stockIncrement;
+        const branchStock = getBranchStock(product, branchId);
+        const newStock = branchStock.stock_qty + stockIncrement;
 
-        const productPatch = { stock_qty: newStock };
+        const productPatch = {};
         const w = product.product_wholesale_pricing?.[0] || product.product_wholesale_pricing || {};
         const k = product.product_kg_pricing?.[0] || product.product_kg_pricing || {};
         const newSell = item.new_sell_price;
@@ -274,9 +316,16 @@ export default function PembelianPage() {
           });
         }
 
-        await supabase.from("products").update(productPatch).eq("id", item.product_id);
+        if (Object.keys(productPatch).length > 0) {
+          await supabase.from("products").update(productPatch).eq("id", item.product_id);
+        }
+        await supabase.from("product_branch_stock").upsert(
+          { product_id: item.product_id, branch_id: branchId, stock_qty: newStock, min_stock: branchStock.min_stock },
+          { onConflict: "product_id,branch_id" }
+        );
         await supabase.from("stock_movements").insert({
           product_id: item.product_id,
+          branch_id: branchId,
           movement_type: "pembelian",
           qty: stockIncrement,
           unit_cost: item.unit_cost,
@@ -297,14 +346,73 @@ export default function PembelianPage() {
     }
   }
 
+  // Koreksi / Rusak: kurangi jumlah salah satu baris di "Barang Dipesan" (belum
+  // tersimpan ke database) karena ada yang rusak saat diterima. Kalau jumlah
+  // dikurangi sampai habis, baris itu dihapus dari daftar. Bisa juga ditandai
+  // untuk diretur ke supplier nota ini (masuk daftar retur, belum diambil).
+  async function applyCorrection() {
+    const idx = correctionForm.itemIndex;
+    if (idx === "" || idx === null) return toast.error("Pilih barang yang rusak dari daftar Barang Dipesan");
+    const item = items[Number(idx)];
+    if (!item) return toast.error("Barang tidak ditemukan di daftar");
+    const qty = Number(correctionForm.qty);
+    if (!qty || qty <= 0) return toast.error("Isi jumlah yang rusak/dikurangi");
+    if (qty > Number(item.qty)) {
+      return toast.error(`Jumlah koreksi (${qty}) melebihi jumlah di daftar (${item.qty}). Periksa kembali.`);
+    }
+    if (correctionForm.linkSupplierReturn && !form.supplier_id) {
+      return toast.error("Pilih supplier pada form pesanan dahulu");
+    }
+
+    const newQty = Number(item.qty) - qty;
+    setItems((prev) => {
+      const next = [...prev];
+      if (newQty <= 0) {
+        next.splice(Number(idx), 1);
+      } else {
+        next[Number(idx)] = {
+          ...next[Number(idx)],
+          qty: newQty,
+          note: [next[Number(idx)].note, `Dikurangi ${qty} (rusak${correctionForm.reason ? `: ${correctionForm.reason}` : ""})`]
+            .filter(Boolean)
+            .join("; "),
+        };
+      }
+      return next;
+    });
+
+    if (correctionForm.linkSupplierReturn && form.supplier_id) {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        await supabase.from("returns").insert({
+          return_type: "supplier",
+          product_id: item.product_id,
+          qty,
+          reason: correctionForm.reason || null,
+          reference_supplier_id: form.supplier_id,
+          pickup_status: "belum_diambil",
+          created_by: userData?.user?.id,
+        });
+        toast.success("Koreksi diterapkan & masuk daftar retur supplier");
+      } catch (err) {
+        toast.error("Koreksi diterapkan, tapi gagal mencatat ke daftar retur: " + err.message);
+      }
+    } else {
+      toast.success("Koreksi diterapkan ke daftar Barang Dipesan");
+    }
+
+    setCorrectionForm({ itemIndex: "", qty: "", reason: "", linkSupplierReturn: false });
+    setCorrectionOpen(false);
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Pembelian</h1>
-          <p className="text-sm text-ink-muted">Buat pesanan ke supplier, terima barang masuk, dan pantau sisa hutang tiap nota pembelian.</p>
+          <h1 className="text-xl font-semibold">Stok & Barang Masuk</h1>
+          <p className="text-sm text-ink-muted">Buat pesanan ke supplier, terima barang masuk, dan pantau sisa hutang tiap nota.</p>
         </div>
-        <Button onClick={() => setModalOpen(true)}>+ Pesanan Baru</Button>
+        <Button onClick={() => setModalOpen(true)}>Terima Barang</Button>
       </div>
 
       <Card>
@@ -316,7 +424,10 @@ export default function PembelianPage() {
               <div key={o.id} className="border border-border rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <p className="text-sm font-medium">{o.suppliers?.name}</p>
+                    <p className="text-sm font-medium">
+                      {o.suppliers?.name}
+                      {o.nota_number && <span className="text-ink-muted font-normal"> · Nota {o.nota_number}</span>}
+                    </p>
                     <p className="text-xs text-ink-muted">{formatDateTime(o.created_at)} {o.due_date ? `· Jatuh tempo ${formatDate(o.due_date)}` : ""}</p>
                   </div>
                   <div className="flex gap-1.5">
@@ -352,7 +463,7 @@ export default function PembelianPage() {
       </Card>
 
       {modalOpen && (
-        <Modal title="Pesanan Pembelian Baru" onClose={() => setModalOpen(false)} wide>
+        <Modal title="Pesanan Pembelian Baru" onClose={() => { setModalOpen(false); setCorrectionOpen(false); }} wide>
           <p className="text-xs text-ink-muted mb-3">
             Stok baru bertambah setelah barang diterima, bukan saat pesanan dibuat.
           </p>
@@ -361,7 +472,15 @@ export default function PembelianPage() {
               <option value="">-- pilih --</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
+            <Input label="Nomor Nota" placeholder="contoh: 0021" value={form.nota_number} onChange={(e) => setForm({ ...form, nota_number: e.target.value })} />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 mb-3">
             <Input label="Jatuh Tempo" type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+            {branches.length > 1 && (
+              <Select label="Cabang Tujuan" value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </Select>
+            )}
           </div>
           <Textarea label="Catatan" placeholder="Kirim minggu depan, faktur menyusul" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="mb-4" />
 
@@ -369,14 +488,22 @@ export default function PembelianPage() {
             <p className="text-sm font-medium mb-1">Barang Dipesan</p>
             <p className="text-xs text-ink-muted mb-3">Pilih barang, lalu isi jumlah yang diterima di tingkatan harga yang sesuai (bisa lebih dari satu). Kolom "Harga Baru" boleh dikosongkan kalau harga tidak berubah dari supplier.</p>
 
-            <Select
-              value={draftProductId}
-              onChange={(e) => { setDraftProductId(e.target.value); setDraftTiers({}); }}
-              className="mb-4"
-            >
-              <option value="">-- pilih barang (bisa scan barcode) --</option>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
+            <div className="flex items-center gap-2 mb-4">
+              <Select
+                value={draftProductId}
+                onChange={(e) => { setDraftProductId(e.target.value); setDraftTiers({}); }}
+                className="flex-1"
+              >
+                <option value="">-- pilih barang (bisa scan barcode) --</option>
+                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+              {isMobile && (
+                <CameraScanButton
+                  onDetected={pickProductByCode}
+                  title="Cari barang pakai kamera"
+                />
+              )}
+            </div>
 
             {selectedProduct && (
               <div className="space-y-3 mb-4">
@@ -439,25 +566,85 @@ export default function PembelianPage() {
             {items.length > 0 && (
               <div className="mt-4 space-y-1.5">
                 {items.map((it, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-sm border-t border-border pt-1.5">
-                    <span>
-                      {it.name} <span className="text-ink-muted text-xs">({it.price_type_label})</span> x{it.qty}
-                      {it.unit_cost !== it.old_cost && <span className="text-primary text-xs ml-1">harga beli baru</span>}
-                      {it.new_sell_price && <span className="text-primary text-xs ml-1">harga jual baru</span>}
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <span>{formatRupiah(it.qty * it.unit_cost)}</span>
-                      <button onClick={() => removeItem(idx)} className="text-xs text-danger">Hapus</button>
+                  <div key={idx} className="text-sm border-t border-border pt-1.5">
+                    <div className="flex items-center justify-between">
+                      <span>
+                        {it.name} <span className="text-ink-muted text-xs">({it.price_type_label})</span> x{it.qty}
+                        {it.unit_cost !== it.old_cost && <span className="text-primary text-xs ml-1">harga beli baru</span>}
+                        {it.new_sell_price && <span className="text-primary text-xs ml-1">harga jual baru</span>}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span>{formatRupiah(it.qty * it.unit_cost)}</span>
+                        <button onClick={() => removeItem(idx)} className="text-xs text-danger">Hapus</button>
+                      </div>
                     </div>
+                    {it.note && <p className="text-[11px] text-danger mt-0.5">{it.note}</p>}
                   </div>
                 ))}
               </div>
             )}
+
+            {items.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-border">
+                {!correctionOpen ? (
+                  <Button variant="outline" onClick={() => setCorrectionOpen(true)}>Koreksi / Rusak</Button>
+                ) : (
+                  <div className="border border-border rounded-lg p-3 space-y-3">
+                    <p className="text-xs text-ink-muted">Kurangi jumlah salah satu barang di atas karena rusak saat diterima. Jumlah yang tersimpan di nota otomatis berkurang.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <Select
+                        label="Barang yang Rusak"
+                        value={correctionForm.itemIndex}
+                        onChange={(e) => setCorrectionForm({ ...correctionForm, itemIndex: e.target.value })}
+                      >
+                        <option value="">-- pilih dari Barang Dipesan --</option>
+                        {items.map((it, idx) => (
+                          <option key={idx} value={idx}>{it.name} ({it.price_type_label}) - saat ini {it.qty}</option>
+                        ))}
+                      </Select>
+                      <Input
+                        label="Jumlah Rusak/Dikurangi"
+                        type="number"
+                        placeholder="contoh: 2"
+                        value={correctionForm.qty}
+                        onChange={(e) => setCorrectionForm({ ...correctionForm, qty: e.target.value })}
+                      />
+                    </div>
+                    <Textarea
+                      label="Alasan Kerusakan"
+                      placeholder="Dus penyok / botol pecah / susut"
+                      value={correctionForm.reason}
+                      onChange={(e) => setCorrectionForm({ ...correctionForm, reason: e.target.value })}
+                      rows={2}
+                    />
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={correctionForm.linkSupplierReturn}
+                        onChange={(e) => setCorrectionForm({ ...correctionForm, linkSupplierReturn: e.target.checked })}
+                      />
+                      Retur ke supplier ini (masuk daftar retur, belum diambil)
+                    </label>
+                    {correctionForm.linkSupplierReturn && !form.supplier_id && (
+                      <p className="text-xs text-danger -mt-1.5">Pilih Supplier di form pesanan (atas) dulu sebelum menerapkan koreksi ini.</p>
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => { setCorrectionOpen(false); setCorrectionForm({ itemIndex: "", qty: "", reason: "", linkSupplierReturn: false }); }}>Batal</Button>
+                      <Button variant="danger" onClick={applyCorrection}>Terapkan Koreksi</Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-3 mb-4">
+          <div className="grid sm:grid-cols-3 gap-3 mb-4">
             <Input label="Diskon" type="number" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
             <Input label="Bayar Sekarang (Uang Muka)" type="number" value={form.down_payment} onChange={(e) => setForm({ ...form, down_payment: e.target.value })} />
+            <Select label="Dibayar Cash / Transfer" value={form.down_payment_method} onChange={(e) => setForm({ ...form, down_payment_method: e.target.value })}>
+              <option value="cash">Cash</option>
+              <option value="transfer">Transfer</option>
+            </Select>
           </div>
 
           <div className="bg-background rounded-xl p-4 space-y-1 text-sm mb-4">
@@ -468,7 +655,7 @@ export default function PembelianPage() {
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); setCorrectionOpen(false); }}>Batal</Button>
             <Button onClick={submitOrder} disabled={saving}>{saving ? "Menyimpan..." : "Buat Pesanan"}</Button>
           </div>
         </Modal>

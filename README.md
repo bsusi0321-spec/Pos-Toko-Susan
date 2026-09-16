@@ -51,7 +51,7 @@ Dua peran: **Admin** (akses penuh) dan **Kasir** (hanya halaman kasir).
 
 1. Buat project baru di https://supabase.com.
 2. Buka **SQL Editor**, jalankan seluruh isi file `supabase/schema.sql` (satu kali).
-3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql`, lalu `supabase/migration-03-perbaikan.sql`, lalu `supabase/migration-04-harga-bertingkat.sql` (satu kali, berurutan).
+3. Jalankan juga `supabase/migration-02-fitur-tambahan.sql`, lalu `supabase/migration-03-perbaikan.sql`, lalu `supabase/migration-04-harga-bertingkat.sql`, lalu `supabase/migration-05-retur-dan-metode-bayar.sql`, `supabase/migration-06-barcode-unik-dan-nota.sql`, lalu `supabase/migration-07-catatan-item-pembelian.sql`, lalu `supabase/migration-08-pengaturan-struk.sql` (satu kali, berurutan).
 3. Buka **Authentication > Users > Add user**, buat akun admin pertama:
    - Email: `namaadmin@kasir.local` (format ini dipakai karena aplikasi login
      dengan **username**, bukan email — sistem menambahkan `@kasir.local` otomatis)
@@ -133,6 +133,29 @@ git push -u origin main
   bisa manual (klik "Jalankan Sekarang") atau otomatis sesuai jadwal (dijalankan lewat
   Vercel Cron setiap hari, hanya benar-benar memproses saat jadwalnya sudah waktunya).
   Data yang diarsipkan **tidak dihapus** dan tetap bisa dibuka di halaman yang sama.
+- **Pajak/PPN**: opsional PER PRODUK (0% = tidak kena pajak), diatur di menu
+  **Produk & Harga**. Label & cara hitung (ditambahkan di atas harga, atau harga
+  sudah termasuk pajak) diatur di **Pengaturan Toko**.
+- **Kirim struk WhatsApp**: pakai link `wa.me` bawaan (gratis, tanpa API berbayar).
+  Kalau pelanggan punya nomor HP tersimpan, terkirim langsung ke nomor itu; kalau
+  tidak, kasir tinggal pilih kontak dari WhatsApp di HP-nya sendiri.
+- **Notifikasi otomatis**: stok menipis & ringkasan penjualan harian dikirim ke
+  **Telegram** (bukan WhatsApp API, karena WhatsApp Business API perlu verifikasi
+  bisnis berbayar). Diatur di **Pengaturan Toko** > Notifikasi Otomatis — isi Bot
+  Token & Chat ID, aktifkan togglenya, lalu jalankan migrasi #10. Jadwal cron
+  default: cek stok ±08:00 WIB, laporan harian ±21:00 WIB (bisa diubah di
+  `vercel.json` kalau perlu jam lain — paket Vercel gratis membatasi jadwal cron
+  jadi maksimal sekali per hari per cron).
+- **Multi-Cabang**: stok barang sudah dipisah PER CABANG (tabel `product_branch_stock`,
+  migrasi #12). Halaman **Produk & Harga** punya pemilih cabang untuk melihat/mengedit
+  stok cabang tertentu; halaman **Pembelian** & **Retur** juga meminta pilih cabang
+  supaya stok masuk/keluar ke cabang yang benar. Kasir yang sudah ditugaskan ke satu
+  cabang otomatis memakai stok cabang itu; kalau akun (biasanya admin) belum
+  ditugaskan ke cabang manapun dan ada lebih dari 1 cabang aktif, layar kasir akan
+  minta pilih cabang dulu sebelum transaksi bisa dimulai.
+  Kolom `products.stock_qty`/`min_stock` lama TIDAK dihapus (untuk jaga-jaga), tapi
+  aplikasi sudah tidak memakainya lagi — sumber kebenaran stok sekarang
+  `product_branch_stock`.
 - **Scanner global**: scanner fisik dan HP (via QR) aktif di semua halaman utama yang
   ada kolom cari/pilih barang — bukan cuma di Kasir.
 - **Suara nama barang**: memakai fitur bawaan browser (Web Speech API), gratis tanpa

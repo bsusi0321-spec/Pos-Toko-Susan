@@ -7,68 +7,119 @@ import { formatRupiah, formatDateTime, formatNumber } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
 import { Button, Card, EmptyState, Input, Select, Textarea, Badge } from "@/components/ui/kit";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
+import { useViewport } from "@/lib/useViewport";
+import CameraScanButton from "@/components/CameraScanButton";
+import { findProductByCode } from "@/lib/barcode";
+import { getBranchStock } from "@/lib/branchStock";
 
 export default function ReturPage() {
   const supabase = createClient();
   const [tab, setTab] = useState("customer");
   const [products, setProducts] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ product_id: "", qty: "", reason: "", refund_amount: "", supplier_id: "" });
+  const [form, setForm] = useState({ product_id: "", qty: "", reason: "", refund_amount: "", supplier_id: "", branch_id: "" });
+  const { isMobile } = useViewport();
+
+  function pickByBarcode(code) {
+    const match = findProductByCode(products, code);
+    if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-retur" });
+    setForm((f) => ({ ...f, product_id: match.id }));
+    toast.success(`Terpilih: ${match.name}`, { id: "scan-retur" });
+  }
 
   useEffect(() => {
     load();
   }, []);
 
-  // Scan barcode global: langsung pilihkan barang yang diretur.
-  useBarcodeScan((code) => {
-    const match = products.find(
-      (p) => p.sku === code || (p.product_barcodes || []).some((b) => b.barcode === code)
-    );
-    if (!match) return toast.error(`Barcode "${code}" tidak ditemukan`, { id: "scan-retur" });
-    setForm((f) => ({ ...f, product_id: match.id }));
-    toast.success(`Terpilih: ${match.name}`, { id: "scan-retur" });
-  });
+  // Scan barcode global (scanner fisik / HP terhubung sebagai remote): langsung pilihkan barang yang diretur.
+  useBarcodeScan((code) => pickByBarcode(code));
 
 
   async function load() {
     setLoading(true);
-    const [{ data: p }, { data: s }, { data: r }] = await Promise.all([
-      supabase.from("products").select("id, name, stock_qty, sell_price, sku, product_barcodes(barcode)").eq("active", true).order("name"),
+
+    // Bersihkan permanen riwayat retur yang sudah diambil lebih dari 1 bulan lalu.
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    await supabase.from("returns").delete().eq("pickup_status", "sudah_diambil").lt("picked_up_at", oneMonthAgo.toISOString());
+
+    const [{ data: p }, { data: s }, { data: r }, { data: b }] = await Promise.all([
+      supabase.from("products").select("id, name, sell_price, sku, product_barcodes(barcode), product_branch_stock(*)").eq("active", true).order("name"),
       supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
-      supabase.from("returns").select("*, products(name)").order("created_at", { ascending: false }).limit(50),
+      supabase.from("returns").select("*, products(name), suppliers:reference_supplier_id(name), branches(name)").order("created_at", { ascending: false }).limit(100),
+      supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
     ]);
     setProducts(p || []);
     setSuppliers(s || []);
     setReturns(r || []);
+    setBranches(b || []);
+    setForm((f) => ({ ...f, branch_id: f.branch_id || b?.[0]?.id || "" }));
     setLoading(false);
+  }
+
+  async function markPickedUp(r) {
+    const { data, error } = await supabase
+      .from("returns")
+      .update({ pickup_status: "sudah_diambil", picked_up_at: new Date().toISOString() })
+      .eq("id", r.id)
+      .select("id");
+    if (error) return toast.error(error.message);
+    if (!data || data.length === 0) return toast.error("Gagal menandai, coba muat ulang halaman.");
+    toast.success("Ditandai sudah diambil, pindah ke riwayat");
+    load();
+  }
+
+  async function markNotPickedUp(r) {
+    const { data, error } = await supabase
+      .from("returns")
+      .update({ pickup_status: "belum_diambil", picked_up_at: null })
+      .eq("id", r.id)
+      .select("id");
+    if (error) return toast.error(error.message);
+    if (!data || data.length === 0) return toast.error("Gagal menandai, coba muat ulang halaman.");
+    toast.success("Ditandai belum diambil, pindah ke daftar menunggu");
+    load();
   }
 
   async function submit() {
     if (!form.product_id || !form.qty) return toast.error("Pilih barang dan isi jumlah");
+    if (branches.length > 1 && !form.branch_id) return toast.error("Pilih cabang untuk retur ini");
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
       const product = products.find((p) => p.id === form.product_id);
       const qty = Number(form.qty);
+      const branchId = form.branch_id || branches[0]?.id || null;
 
       await supabase.from("returns").insert({
         return_type: tab,
         product_id: form.product_id,
+        branch_id: branchId,
         qty,
         reason: form.reason || null,
         refund_amount: Number(form.refund_amount) || 0,
         reference_supplier_id: tab === "supplier" ? form.supplier_id || null : null,
+        // Retur pelanggan langsung selesai; retur ke supplier menunggu diambil dulu.
+        pickup_status: tab === "customer" ? "sudah_diambil" : "belum_diambil",
+        picked_up_at: tab === "customer" ? new Date().toISOString() : null,
         created_by: userData?.user?.id,
       });
 
       // retur dari pelanggan -> stok kembali bertambah; retur ke supplier -> stok berkurang
       const stockDelta = tab === "customer" ? qty : -qty;
-      await supabase.from("products").update({ stock_qty: Math.max(0, Number(product.stock_qty) + stockDelta) }).eq("id", form.product_id);
+      const branchStock = getBranchStock(product, branchId);
+      const newStock = Math.max(0, branchStock.stock_qty + stockDelta);
+      await supabase.from("product_branch_stock").upsert(
+        { product_id: form.product_id, branch_id: branchId, stock_qty: newStock, min_stock: branchStock.min_stock },
+        { onConflict: "product_id,branch_id" }
+      );
       await supabase.from("stock_movements").insert({
         product_id: form.product_id,
+        branch_id: branchId,
         movement_type: "retur",
         qty: stockDelta,
         note: `Retur ${tab === "customer" ? "dari pelanggan" : "ke supplier"}: ${form.reason || "-"}`,
@@ -77,7 +128,7 @@ export default function ReturPage() {
 
       await logActivity(supabase, { userId: userData?.user?.id, action: "return_item", entity: "returns", details: { type: tab, qty } });
       toast.success("Retur dicatat");
-      setForm({ product_id: "", qty: "", reason: "", refund_amount: "", supplier_id: "" });
+      setForm({ product_id: "", qty: "", reason: "", refund_amount: "", supplier_id: "", branch_id: form.branch_id });
       load();
     } catch (err) {
       toast.error(err.message);
@@ -85,6 +136,9 @@ export default function ReturPage() {
       setSaving(false);
     }
   }
+
+  const pendingSupplierReturns = returns.filter((r) => r.return_type === "supplier" && r.pickup_status === "belum_diambil");
+  const historyReturns = returns.filter((r) => r.pickup_status === "sudah_diambil");
 
   return (
     <div className="space-y-5">
@@ -99,11 +153,17 @@ export default function ReturPage() {
       </div>
 
       <Card>
-        <div className="grid grid-cols-2 gap-3">
-          <Select label="Pilih Barang" value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
-            <option value="">-- pilih --</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium mb-1.5 leading-snug flex items-end min-h-[2.5rem]">Pilih Barang</label>
+            <div className="flex items-center gap-2">
+              <Select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} className="flex-1">
+                <option value="">-- pilih (bisa scan barcode) --</option>
+                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+              {isMobile && <CameraScanButton onDetected={pickByBarcode} title="Cari barang pakai kamera" />}
+            </div>
+          </div>
           <Input label="Jumlah" type="number" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} />
           {tab === "supplier" && (
             <Select label="Supplier" value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
@@ -114,6 +174,11 @@ export default function ReturPage() {
           {tab === "customer" && (
             <Input label="Nominal Refund (opsional)" type="number" value={form.refund_amount} onChange={(e) => setForm({ ...form, refund_amount: e.target.value })} />
           )}
+          {branches.length > 1 && (
+            <Select label="Cabang" value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          )}
         </div>
         <Textarea label="Alasan Retur" placeholder="mis. barang cacat / salah kirim" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="mt-3" rows={2} />
         <div className="flex justify-end mt-4">
@@ -121,20 +186,49 @@ export default function ReturPage() {
         </div>
       </Card>
 
+      <Card title="List Barang Retur (Belum Diambil Supplier)">
+        {loading ? <p className="text-sm text-ink-muted">Memuat...</p> : pendingSupplierReturns.length === 0 ? (
+          <EmptyState text="Tidak ada barang retur yang menunggu diambil." />
+        ) : (
+          <div className="space-y-2">
+            {pendingSupplierReturns.map((r) => (
+              <div key={r.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border last:border-0">
+                <div>
+                  <p className="font-medium">{r.products?.name} <Badge tone="warning" className="ml-1">Belum Diambil</Badge></p>
+                  <p className="text-xs text-ink-muted">
+                    {r.suppliers?.name ? `${r.suppliers.name} · ` : ""}{formatDateTime(r.created_at)} {r.reason ? `· ${r.reason}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-ink-muted">{formatNumber(r.qty, 2)} unit</span>
+                  <Button variant="outline" onClick={() => markPickedUp(r)}>Sudah Diambil</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card title="Riwayat Retur">
-        {loading ? <p className="text-sm text-ink-muted">Memuat...</p> : returns.length === 0 ? (
+        <p className="text-xs text-ink-muted mb-3">Retur yang sudah diambil/selesai. Data otomatis dihapus permanen 1 bulan setelah tanggal diambil.</p>
+        {loading ? <p className="text-sm text-ink-muted">Memuat...</p> : historyReturns.length === 0 ? (
           <EmptyState text="Belum ada retur." />
         ) : (
           <div className="space-y-2">
-            {returns.map((r) => (
+            {historyReturns.map((r) => (
               <div key={r.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border last:border-0">
                 <div>
                   <p className="font-medium">{r.products?.name} <Badge tone={r.return_type === "customer" ? "primary" : "warning"} className="ml-1">{r.return_type === "customer" ? "Dari Pelanggan" : "Ke Supplier"}</Badge></p>
                   <p className="text-xs text-ink-muted">{formatDateTime(r.created_at)} {r.reason ? `· ${r.reason}` : ""}</p>
                 </div>
-                <div className="text-right text-xs text-ink-muted">
-                  <p>{formatNumber(r.qty, 2)} unit</p>
-                  {r.refund_amount > 0 && <p>{formatRupiah(r.refund_amount)}</p>}
+                <div className="flex items-center gap-3">
+                  <div className="text-right text-xs text-ink-muted">
+                    <p>{formatNumber(r.qty, 2)} unit</p>
+                    {r.refund_amount > 0 && <p>{formatRupiah(r.refund_amount)}</p>}
+                  </div>
+                  {r.return_type === "supplier" && (
+                    <Button variant="outline" onClick={() => markNotPickedUp(r)}>Tandai Belum Diambil</Button>
+                  )}
                 </div>
               </div>
             ))}
