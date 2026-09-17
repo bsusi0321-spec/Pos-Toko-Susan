@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDateTime, formatNumber } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
-import { Button, Card, EmptyState, Input, Select, Textarea, Badge } from "@/components/ui/kit";
+import { Button, Card, EmptyState, Input, PriceInput, Select, Textarea, Badge } from "@/components/ui/kit";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
 import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
@@ -172,7 +172,7 @@ export default function ReturPage() {
             </Select>
           )}
           {tab === "customer" && (
-            <Input label="Nominal Refund (opsional)" type="number" value={form.refund_amount} onChange={(e) => setForm({ ...form, refund_amount: e.target.value })} />
+            <PriceInput label="Nominal Refund (opsional)" value={form.refund_amount} onChange={(e) => setForm({ ...form, refund_amount: e.target.value })} />
           )}
           {branches.length > 1 && (
             <Select label="Cabang" value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>

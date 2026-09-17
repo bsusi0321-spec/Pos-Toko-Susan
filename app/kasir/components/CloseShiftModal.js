@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
-import { formatRupiah } from "@/lib/format";
+import { formatRupiah, formatThousands, handleThousandsInputChange } from "@/lib/format";
 
 export default function CloseShiftModal({ shift, onClose, onClosed }) {
   const supabase = createClient();
@@ -77,8 +77,8 @@ export default function CloseShiftModal({ shift, onClose, onClosed }) {
             <label className="block text-sm font-medium mb-1.5">Uang Tunai Aktual di Laci</label>
             <input
               autoFocus
-              value={actualCash}
-              onChange={(e) => setActualCash(e.target.value)}
+              value={formatThousands(actualCash)}
+              onChange={(e) => handleThousandsInputChange(e, setActualCash)}
               onWheel={(e) => e.currentTarget.blur()}
               inputMode="numeric"
               className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-lg text-right outline-none focus:ring-2 focus:ring-primary/40 mb-3"

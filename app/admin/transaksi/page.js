@@ -159,7 +159,7 @@ export default function CekTransaksiPage() {
               {detailItems.map((it) => (
                 <div key={it.id} className="flex items-center justify-between text-sm border-b border-border pb-1.5">
                   <div>
-                    <p>{it.products?.name || "-"} <span className="text-xs text-ink-muted">({PRICE_TYPE_LABELS[it.price_type] || it.price_type})</span></p>
+                    <p>{it.products?.name || "-"} <span className="text-xs text-ink-muted">({it.price_type_label || PRICE_TYPE_LABELS[it.price_type] || it.price_type})</span></p>
                     <p className="text-xs text-ink-muted">{formatNumber(it.qty, 2)} x {formatRupiah(it.unit_price)}</p>
                   </div>
                   <p className="font-medium">{formatRupiah(it.subtotal)}</p>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
-import { formatRupiah, formatNumber } from "@/lib/format";
+import { formatRupiah, formatNumber, formatThousands, handleThousandsInputChange } from "@/lib/format";
 import { getPriceVariants } from "@/lib/pricing";
 import { logActivity } from "@/lib/logActivity";
 import { openCashDrawer } from "@/lib/cashDrawer";
@@ -154,6 +154,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             product_id: product.id,
             name: product.name,
             price_type: variant.price_type,
+            price_type_label: variant.label,
             unit_price: variant.unit_price,
             stock_factor: variant.stock_factor,
             cost_price: Number(variant.cost_basis ?? product.cost_price ?? 0),
@@ -360,6 +361,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           ? {
               ...it,
               price_type: variant.price_type,
+              price_type_label: variant.label,
               unit_price: variant.unit_price,
               stock_factor: variant.stock_factor,
               cost_price: Number(variant.cost_basis ?? it.cost_price ?? 0),
@@ -419,6 +421,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         transaction_id: tx.id,
         product_id: i.product_id,
         price_type: i.price_type,
+        price_type_label: i.price_type_label || null,
         qty: i.qty,
         unit_price: i.unit_price,
         cost_price_snapshot: i.cost_price,
@@ -444,6 +447,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         product_id: it.product_id,
         name: product?.name || "(barang tidak dikenal)",
         price_type: it.price_type,
+        price_type_label: it.price_type_label || getPriceVariants(product || {}).find((v) => v.price_type === it.price_type)?.label,
         unit_price: it.unit_price,
         stock_factor: getPriceVariants(product || {}).find((v) => v.price_type === it.price_type)?.stock_factor || 1,
         cost_price: it.cost_price_snapshot,
@@ -580,6 +584,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           transaction_id: tx.id,
           product_id: i.product_id,
           price_type: i.price_type,
+          price_type_label: i.price_type_label || null,
           qty: i.qty,
           unit_price: i.unit_price,
           cost_price_snapshot: i.cost_price,
@@ -676,7 +681,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
       const receiptData = {
         store: settings,
         tx,
-        items: cart.map((i) => ({ name: i.name, price_type: i.price_type, qty: i.qty, unit_price: i.unit_price })),
+        items: cart.map((i) => ({ name: i.name, price_type: i.price_type, price_type_label: i.price_type_label, qty: i.qty, unit_price: i.unit_price })),
         cashierName: profile.full_name,
         customerName: customer?.name || null,
         customerPhone: customer?.phone || null,
@@ -1201,8 +1206,8 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
             <label className="text-sm text-ink-muted whitespace-nowrap">Diskon</label>
             <input
-              value={manualDiscount}
-              onChange={(e) => setManualDiscount(e.target.value)}
+              value={formatThousands(manualDiscount)}
+              onChange={(e) => handleThousandsInputChange(e, setManualDiscount)}
               onWheel={(e) => e.currentTarget.blur()}
               inputMode="numeric"
               placeholder="0"
@@ -1210,8 +1215,8 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             />
             <label className="text-sm text-ink-muted whitespace-nowrap">Antar</label>
             <input
-              value={deliveryFee}
-              onChange={(e) => setDeliveryFee(e.target.value)}
+              value={formatThousands(deliveryFee)}
+              onChange={(e) => handleThousandsInputChange(e, setDeliveryFee)}
               onWheel={(e) => e.currentTarget.blur()}
               inputMode="numeric"
               placeholder="0"

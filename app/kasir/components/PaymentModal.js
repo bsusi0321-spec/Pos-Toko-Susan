@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatRupiah } from "@/lib/format";
+import { formatRupiah, formatThousands, handleThousandsInputChange } from "@/lib/format";
 
 export default function PaymentModal({ total, customer, settings, hotkeyLabel, onClose, onSubmit, loading }) {
   const [method, setMethod] = useState("tunai");
@@ -72,8 +72,8 @@ export default function PaymentModal({ total, customer, settings, hotkeyLabel, o
             <label className="block text-sm font-medium mb-1.5">Jumlah Diterima</label>
             <input
               autoFocus
-              value={paid}
-              onChange={(e) => setPaid(e.target.value)}
+              value={formatThousands(paid)}
+              onChange={(e) => handleThousandsInputChange(e, setPaid)}
               onWheel={(e) => e.currentTarget.blur()}
               inputMode="numeric"
               className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-lg text-right outline-none focus:ring-2 focus:ring-primary/40 mb-3"

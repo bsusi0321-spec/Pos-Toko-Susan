@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDate } from "@/lib/format";
-import { Button, Card, EmptyState, Badge, Modal, Input } from "@/components/ui/kit";
+import { Button, Card, EmptyState, Badge, Modal, Input, PriceInput } from "@/components/ui/kit";
 
 export default function KasbonPage() {
   const supabase = createClient();
@@ -119,7 +119,7 @@ export default function KasbonPage() {
           <p className="text-sm text-ink-muted mb-3">
             Sisa hutang: <span className="font-medium text-ink">{formatRupiah(Number(payModal.amount) - Number(payModal.paid_amount))}</span>
           </p>
-          <Input label="Jumlah Bayar" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+          <PriceInput label="Jumlah Bayar" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setPayModal(null)}>Batal</Button>
             <Button onClick={submitPayment} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Pembayaran"}</Button>

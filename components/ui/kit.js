@@ -1,5 +1,7 @@
 "use client";
 
+import { formatThousands, handleThousandsInputChange } from "@/lib/format";
+
 export function Card({ title, action, children, className = "" }) {
   return (
     <div className={`bg-surface border border-border rounded-2xl p-5 ${className}`}>
@@ -82,6 +84,36 @@ export function Textarea({ label, hint, className = "", alignRow = false, ...pro
         {...props}
         className={`w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary ${alignRow ? "self-start" : ""}`}
       />
+      {hint ? <p className={`text-xs text-ink-muted mt-1 ${alignRow ? "self-start" : ""}`}>{hint}</p> : alignRow ? <span /> : null}
+    </div>
+  );
+}
+
+// Pengganti langsung <Input type="number"> KHUSUS untuk kolom HARGA/RUPIAH.
+// Tampilan otomatis dikasih titik ribuan sambil diketik (mis. "15.000"),
+// tapi value yang dikirim ke onChange (lewat e.target.value, persis seperti
+// <Input> biasa) tetap angka mentah tanpa titik -- jadi kode pemanggil yang
+// sudah ada (onChange={(e) => setForm({...form, sell_price: e.target.value})})
+// TIDAK perlu diubah sama sekali, cukup ganti nama tag-nya saja.
+export function PriceInput({ label, hint, className = "", alignRow = false, value, onChange, prefix = "Rp", ...props }) {
+  return (
+    <div className={`${rowFieldClass(alignRow)} ${className}`}>
+      {label ? (
+        <label className={`text-sm font-medium mb-1.5 leading-snug ${alignRow ? "self-end" : "flex items-end min-h-[2.5rem]"}`}>{label}</label>
+      ) : alignRow ? (
+        <span />
+      ) : null}
+      <div className={`relative ${alignRow ? "self-start w-full" : ""}`}>
+        {prefix && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-muted">{prefix}</span>}
+        <input
+          {...props}
+          type="text"
+          inputMode="numeric"
+          value={formatThousands(value)}
+          onChange={(e) => handleThousandsInputChange(e, (raw) => onChange({ target: { value: raw, name: props.name } }))}
+          className={`w-full rounded-lg border border-border bg-background py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary ${prefix ? "pl-9 pr-3" : "px-3"}`}
+        />
+      </div>
       {hint ? <p className={`text-xs text-ink-muted mt-1 ${alignRow ? "self-start" : ""}`}>{hint}</p> : alignRow ? <span /> : null}
     </div>
   );

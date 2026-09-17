@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
-import { formatRupiah, formatDate, formatDateTime } from "@/lib/format";
+import { formatRupiah, formatDate, formatDateTime, formatThousands, handleThousandsInputChange } from "@/lib/format";
 import { logActivity } from "@/lib/logActivity";
-import { Button, Card, Input, Modal, Select, Textarea, EmptyState, Badge } from "@/components/ui/kit";
+import { Button, Card, Input, PriceInput, Modal, Select, Textarea, EmptyState, Badge } from "@/components/ui/kit";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
 import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
@@ -532,10 +532,11 @@ export default function PembelianPage() {
                       <div>
                         <label className="block text-[11px] text-ink-muted mb-1">Harga Beli Baru</label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="numeric"
                           placeholder="kosongkan jika tetap"
-                          value={draftTiers[tier.price_type]?.newCost || ""}
-                          onChange={(e) => updateDraftTier(tier.price_type, "newCost", e.target.value)}
+                          value={formatThousands(draftTiers[tier.price_type]?.newCost)}
+                          onChange={(e) => handleThousandsInputChange(e, (raw) => updateDraftTier(tier.price_type, "newCost", raw))}
                           onWheel={(e) => e.currentTarget.blur()}
                           className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
                         />
@@ -547,10 +548,11 @@ export default function PembelianPage() {
                       <div>
                         <label className="block text-[11px] text-ink-muted mb-1">Harga Jual Baru</label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="numeric"
                           placeholder="kosongkan jika tetap"
-                          value={draftTiers[tier.price_type]?.newSell || ""}
-                          onChange={(e) => updateDraftTier(tier.price_type, "newSell", e.target.value)}
+                          value={formatThousands(draftTiers[tier.price_type]?.newSell)}
+                          onChange={(e) => handleThousandsInputChange(e, (raw) => updateDraftTier(tier.price_type, "newSell", raw))}
                           onWheel={(e) => e.currentTarget.blur()}
                           className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
                         />
@@ -639,8 +641,8 @@ export default function PembelianPage() {
           </div>
 
           <div className="grid sm:grid-cols-3 gap-3 mb-4">
-            <Input label="Diskon" type="number" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
-            <Input label="Bayar Sekarang (Uang Muka)" type="number" value={form.down_payment} onChange={(e) => setForm({ ...form, down_payment: e.target.value })} />
+            <PriceInput label="Diskon" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
+            <PriceInput label="Bayar Sekarang (Uang Muka)" value={form.down_payment} onChange={(e) => setForm({ ...form, down_payment: e.target.value })} />
             <Select label="Dibayar Cash / Transfer" value={form.down_payment_method} onChange={(e) => setForm({ ...form, down_payment_method: e.target.value })}>
               <option value="cash">Cash</option>
               <option value="transfer">Transfer</option>
@@ -680,7 +682,7 @@ export default function PembelianPage() {
           <p className="text-sm text-ink-muted mb-3">
             Sisa hutang saat ini: <span className="font-medium text-ink">{formatRupiah(payOrder.remaining_debt)}</span>
           </p>
-          <Input label="Jumlah Bayar" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="mb-3" />
+          <PriceInput label="Jumlah Bayar" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="mb-3" />
           <Select label="Metode Pembayaran" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
             <option value="cash">Cash</option>
             <option value="transfer">Transfer</option>

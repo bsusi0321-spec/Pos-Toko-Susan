@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah } from "@/lib/format";
-import { Button, Card, Input, Modal, Select, Toggle, EmptyState, Badge } from "@/components/ui/kit";
+import { Button, Card, Input, PriceInput, Modal, Select, Toggle, EmptyState, Badge } from "@/components/ui/kit";
 
 const empty = { id: null, full_name: "", username: "", role: "kasir", password: "", default_opening_cash: "0", active: true, branch_id: "" };
 
@@ -155,9 +155,8 @@ export default function PenggunaPage() {
                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </Select>
             )}
-            <Input
+            <PriceInput
               label="Modal Awal (Rp)"
-              type="number"
               value={form.default_opening_cash}
               onChange={(e) => setForm({ ...form, default_opening_cash: e.target.value })}
               hint={form.role === "admin" ? "Dipakai kalau admin membuka layar Kasir sendiri." : undefined}

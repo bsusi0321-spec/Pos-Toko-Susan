@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
-import { Button, Card, Input, Modal, Select, Toggle, EmptyState, Badge } from "@/components/ui/kit";
+import { Button, Card, Input, PriceInput, Modal, Select, Toggle, EmptyState, Badge } from "@/components/ui/kit";
+import { Trash2 } from "lucide-react";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
 import { findBarcodeConflict } from "@/lib/checkBarcodeOwner";
 import { useViewport } from "@/lib/useViewport";
@@ -16,6 +17,7 @@ const emptyForm = {
   name: "",
   sku: "",
   unit_type: "unit",
+  unit_label: "",
   cost_price: "",
   sell_price: "",
   stock_qty: "",
@@ -35,6 +37,7 @@ const emptyForm = {
   cost_per_ons: "",
   price_per_ons: "",
   out_of_town_price: "",
+  out_of_town_label: "Antar Luar Kota",
 };
 
 export default function ProdukPage() {
@@ -48,6 +51,18 @@ export default function ProdukPage() {
   const [search, setSearch] = useState("");
   const [branches, setBranches] = useState([]);
   const [activeBranch, setActiveBranch] = useState("");
+  // Daftar "Satuan Barang" (PCS, DUS, LUSIN, dll) yang bisa ditambah/dihapus
+  // sendiri oleh admin langsung dari form produk -- lihat SatuanField di bawah.
+  const [units, setUnits] = useState([]);
+  const [addingUnit, setAddingUnit] = useState(false);
+  const [newUnitName, setNewUnitName] = useState("");
+  // Daftar "Label Harga Khusus" (Antar Luar Kota / nama promo, dll) yang
+  // pernah diketik admin -- muncul lagi sebagai pilihan dropdown buat
+  // produk lain (lihat savePriceLabel/deletePriceLabel). Harganya sendiri
+  // TETAP input angka bebas -- yang di-dropdown cuma labelnya.
+  const [priceLabels, setPriceLabels] = useState([]);
+  const [addingPriceLabel, setAddingPriceLabel] = useState(false);
+  const [newPriceLabel, setNewPriceLabel] = useState("");
   const { isMobile } = useViewport();
 
   useEffect(() => {
@@ -56,7 +71,77 @@ export default function ProdukPage() {
       setBranches(data || []);
       setActiveBranch((prev) => prev || data?.[0]?.id || "");
     });
+    supabase.from("product_units").select("*").order("name", { ascending: true }).then(({ data }) => setUnits(data || []));
+    supabase.from("product_price_labels").select("*").order("name", { ascending: true }).then(({ data }) => setPriceLabels(data || []));
   }, []);
+
+  async function saveNewUnit() {
+    const name = newUnitName.trim();
+    if (!name) return;
+    const { data, error } = await supabase.from("product_units").insert({ name }).select().single();
+    if (error) {
+      if (error.code === "23505") {
+        // Sudah ada di daftar (unique constraint) -- tidak perlu dianggap
+        // error, langsung pakai saja yang sudah ada.
+        setForm((f) => ({ ...f, unit_label: name }));
+        setAddingUnit(false);
+        setNewUnitName("");
+        return;
+      }
+      toast.error(error.message || "Gagal menambah satuan");
+      return;
+    }
+    setUnits((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setForm((f) => ({ ...f, unit_label: data.name }));
+    setAddingUnit(false);
+    setNewUnitName("");
+    toast.success(`Satuan "${name}" ditambahkan`);
+  }
+
+  async function deleteUnit(name) {
+    const unit = units.find((u) => u.name === name);
+    if (!unit) return;
+    if (!confirm(`Hapus "${name}" dari daftar pilihan satuan?\n\nProduk yang sudah memakai label ini tidak akan berubah -- cuma pilihannya yang hilang untuk produk berikutnya.`)) return;
+    const { error } = await supabase.from("product_units").delete().eq("id", unit.id);
+    if (error) return toast.error(error.message || "Gagal menghapus satuan");
+    setUnits((prev) => prev.filter((u) => u.id !== unit.id));
+    setForm((f) => (f.unit_label === name ? { ...f, unit_label: "" } : f));
+    toast.success(`Satuan "${name}" dihapus dari daftar`);
+  }
+
+  async function savePriceLabel() {
+    const name = newPriceLabel.trim();
+    if (!name) return;
+    const { data, error } = await supabase.from("product_price_labels").insert({ name }).select().single();
+    if (error) {
+      if (error.code === "23505") {
+        // Sudah ada di daftar (unique constraint) -- tidak perlu dianggap
+        // error, langsung pakai saja yang sudah ada.
+        setForm((f) => ({ ...f, out_of_town_label: name }));
+        setAddingPriceLabel(false);
+        setNewPriceLabel("");
+        return;
+      }
+      toast.error(error.message || "Gagal menambah label");
+      return;
+    }
+    setPriceLabels((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setForm((f) => ({ ...f, out_of_town_label: data.name }));
+    setAddingPriceLabel(false);
+    setNewPriceLabel("");
+    toast.success(`Label "${name}" ditambahkan`);
+  }
+
+  async function deletePriceLabel(name) {
+    const item = priceLabels.find((l) => l.name === name);
+    if (!item) return;
+    if (!confirm(`Hapus "${name}" dari daftar pilihan label?\n\nProduk yang sudah memakai label ini tidak akan berubah -- cuma pilihannya yang hilang untuk produk berikutnya.`)) return;
+    const { error } = await supabase.from("product_price_labels").delete().eq("id", item.id);
+    if (error) return toast.error(error.message || "Gagal menghapus label");
+    setPriceLabels((prev) => prev.filter((l) => l.id !== item.id));
+    setForm((f) => (f.out_of_town_label === name ? { ...f, out_of_town_label: "" } : f));
+    toast.success(`Label "${name}" dihapus dari daftar`);
+  }
 
   async function load() {
     setLoading(true);
@@ -103,6 +188,7 @@ export default function ProdukPage() {
       name: p.name,
       sku: p.sku || "",
       unit_type: p.unit_type,
+      unit_label: p.unit_label || "",
       cost_price: p.cost_price,
       sell_price: p.sell_price,
       stock_qty: branchStock.stock_qty,
@@ -122,6 +208,7 @@ export default function ProdukPage() {
       cost_per_ons: k.cost_per_ons || "",
       price_per_ons: k.price_per_ons || "",
       out_of_town_price: oot.price || "",
+      out_of_town_label: oot.label || "Antar Luar Kota",
     });
     setModalOpen(true);
   }
@@ -169,6 +256,7 @@ export default function ProdukPage() {
         name: form.name,
         sku: form.sku.trim() || null,
         unit_type: form.unit_type,
+        unit_label: form.unit_label || null,
         cost_price: isKg ? Number(form.cost_per_kg) || 0 : Number(form.cost_price) || 0,
         sell_price: isKg ? Number(form.price_per_kg) || 0 : Number(form.sell_price) || 0,
         tax_rate: Math.min(100, Math.max(0, Number(form.tax_rate) || 0)),
@@ -227,7 +315,13 @@ export default function ProdukPage() {
         await supabase.from("product_out_of_town_pricing").upsert({
           product_id: productId,
           price: Number(form.out_of_town_price),
+          label: form.out_of_town_label?.trim() || "Antar Luar Kota",
         });
+      } else {
+        // Kolomnya dikosongkan lagi di form -- baris lama di database perlu
+        // ikut dihapus, kalau tidak, harga lama akan tetap "nyangkut" dan
+        // masih dipakai di kasir walau di form sudah kelihatan kosong.
+        await supabase.from("product_out_of_town_pricing").delete().eq("product_id", productId);
       }
 
       toast.success("Produk disimpan");
@@ -243,8 +337,23 @@ export default function ProdukPage() {
   async function handleDelete(id) {
     if (!confirm("Hapus produk ini?")) return;
     const { error } = await supabase.from("products").delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else {
+    if (error) {
+      if (error.code === "23503") {
+        // FK ke transaction_items -- produk ini sudah pernah terjual,
+        // menghapusnya akan merusak riwayat transaksi lama. Tawarkan
+        // nonaktifkan saja supaya hilang dari kasir tanpa hapus data.
+        if (confirm("Produk ini sudah pernah terjual, jadi tidak bisa dihapus (riwayat transaksinya butuh data produk ini tetap ada).\n\nNonaktifkan produk ini saja supaya tidak muncul lagi di kasir?")) {
+          const { error: updErr } = await supabase.from("products").update({ active: false }).eq("id", id);
+          if (updErr) toast.error(updErr.message);
+          else {
+            toast.success("Produk dinonaktifkan (bukan dihapus)");
+            load();
+          }
+        }
+      } else {
+        toast.error(error.message);
+      }
+    } else {
       toast.success("Produk dihapus");
       load();
     }
@@ -305,7 +414,9 @@ export default function ProdukPage() {
                   return (
                   <tr key={p.id} className="border-b border-border last:border-0">
                     <td className="py-2.5 pr-3">{p.name}</td>
-                    <td className="py-2.5 pr-3 text-ink-muted">{p.unit_type === "kg" ? "Timbangan" : "PCS"}</td>
+                    <td className="py-2.5 pr-3 text-ink-muted">
+                      {p.unit_label ? p.unit_label : (p.unit_type === "kg" ? "Timbangan" : "PCS")}
+                    </td>
                     <td className="py-2.5 pr-3 text-right">{formatRupiah(p.sell_price)}{p.unit_type === "kg" ? "/kg" : ""}</td>
                     <td className="py-2.5 pr-3 text-right">
                       {formatNumber(branchStock.stock_qty, 2)}
@@ -370,6 +481,67 @@ export default function ProdukPage() {
               </div>
             </div>
 
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Satuan (opsional — PCS, DUS, LUSIN, dll)</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={form.unit_label || ""}
+                  onChange={(e) => {
+                    if (e.target.value === "__new__") setAddingUnit(true);
+                    else setForm({ ...form, unit_label: e.target.value });
+                  }}
+                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                >
+                  <option value="">— Tidak diisi —</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.name}>{u.name}</option>
+                  ))}
+                  <option value="__new__">+ Tambah satuan baru…</option>
+                </select>
+                {form.unit_label && (
+                  <button
+                    type="button"
+                    onClick={() => deleteUnit(form.unit_label)}
+                    title="Hapus satuan ini dari daftar pilihan"
+                    className="shrink-0 rounded-lg border border-border p-2 text-danger hover:bg-danger-soft"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+              {addingUnit && (
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    autoFocus
+                    value={newUnitName}
+                    onChange={(e) => setNewUnitName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        saveNewUnit();
+                      }
+                    }}
+                    placeholder="mis. DUS, LUSIN, KARTON"
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <Button variant="outline" onClick={saveNewUnit}>Simpan</Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setAddingUnit(false);
+                      setNewUnitName("");
+                    }}
+                  >
+                    Batal
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-ink-muted mt-1">
+                Cuma label tampilan (mis. di struk/label harga) — tidak memengaruhi perhitungan harga atau stok. Sekali
+                ditambahkan, satuan ini muncul jadi pilihan buat produk lain juga.
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Input
                 alignRow
@@ -393,8 +565,8 @@ export default function ProdukPage() {
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga Eceran</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Input alignRow label="Harga Beli / Modal (per pcs)" type="number" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} />
-                    <Input alignRow label="Harga Jual Eceran (per pcs)" type="number" value={form.sell_price} onChange={(e) => setForm({ ...form, sell_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli / Modal (per pcs)"  value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Jual Eceran (per pcs)"  value={form.sell_price} onChange={(e) => setForm({ ...form, sell_price: e.target.value })} />
                   </div>
                 </div>
 
@@ -402,8 +574,8 @@ export default function ProdukPage() {
                   <p className="text-sm font-medium mb-3">Harga Grosir</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Input alignRow label="Isi per Grosir (pcs)" type="number" value={form.wholesale_qty} onChange={(e) => setForm({ ...form, wholesale_qty: e.target.value })} />
-                    <Input alignRow label="Harga Beli Grosir (per paket)" type="number" value={form.wholesale_cost_price} onChange={(e) => setForm({ ...form, wholesale_cost_price: e.target.value })} />
-                    <Input alignRow label="Harga Jual Grosir (per paket)" type="number" value={form.wholesale_price} onChange={(e) => setForm({ ...form, wholesale_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli Grosir (per paket)"  value={form.wholesale_cost_price} onChange={(e) => setForm({ ...form, wholesale_cost_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Jual Grosir (per paket)"  value={form.wholesale_price} onChange={(e) => setForm({ ...form, wholesale_price: e.target.value })} />
                   </div>
                 </div>
 
@@ -411,8 +583,8 @@ export default function ProdukPage() {
                   <p className="text-sm font-medium mb-3">Harga Setengah Grosir</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Input alignRow label="Isi per Setengah Grosir (pcs)" type="number" value={form.half_wholesale_qty} onChange={(e) => setForm({ ...form, half_wholesale_qty: e.target.value })} />
-                    <Input alignRow label="Harga Beli 1/2 Grosir (per paket)" type="number" value={form.half_wholesale_cost_price} onChange={(e) => setForm({ ...form, half_wholesale_cost_price: e.target.value })} />
-                    <Input alignRow label="Harga Jual 1/2 Grosir (per paket)" type="number" value={form.half_wholesale_price} onChange={(e) => setForm({ ...form, half_wholesale_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli 1/2 Grosir (per paket)"  value={form.half_wholesale_cost_price} onChange={(e) => setForm({ ...form, half_wholesale_cost_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Jual 1/2 Grosir (per paket)"  value={form.half_wholesale_price} onChange={(e) => setForm({ ...form, half_wholesale_price: e.target.value })} />
                   </div>
                 </div>
               </>
@@ -421,33 +593,104 @@ export default function ProdukPage() {
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga per Kg</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Input alignRow label="Harga Beli per Kg" type="number" value={form.cost_per_kg} onChange={(e) => setForm({ ...form, cost_per_kg: e.target.value })} />
-                    <Input alignRow label="Harga Jual per Kg" type="number" value={form.price_per_kg} onChange={(e) => setForm({ ...form, price_per_kg: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli per Kg"  value={form.cost_per_kg} onChange={(e) => setForm({ ...form, cost_per_kg: e.target.value })} />
+                    <PriceInput alignRow label="Harga Jual per Kg"  value={form.price_per_kg} onChange={(e) => setForm({ ...form, price_per_kg: e.target.value })} />
                   </div>
                 </div>
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga per 1/2 Kg</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Input alignRow label="Harga Beli per 1/2 Kg" type="number" value={form.cost_per_half_kg} onChange={(e) => setForm({ ...form, cost_per_half_kg: e.target.value })} />
-                    <Input alignRow label="Harga Jual per 1/2 Kg" type="number" value={form.price_per_half_kg} onChange={(e) => setForm({ ...form, price_per_half_kg: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli per 1/2 Kg"  value={form.cost_per_half_kg} onChange={(e) => setForm({ ...form, cost_per_half_kg: e.target.value })} />
+                    <PriceInput alignRow label="Harga Jual per 1/2 Kg"  value={form.price_per_half_kg} onChange={(e) => setForm({ ...form, price_per_half_kg: e.target.value })} />
                   </div>
                 </div>
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga per Ons (peronan)</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Input alignRow label="Harga Beli per Ons" type="number" value={form.cost_per_ons} onChange={(e) => setForm({ ...form, cost_per_ons: e.target.value })} />
-                    <Input alignRow label="Harga Jual per Ons" type="number" value={form.price_per_ons} onChange={(e) => setForm({ ...form, price_per_ons: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli per Ons"  value={form.cost_per_ons} onChange={(e) => setForm({ ...form, cost_per_ons: e.target.value })} />
+                    <PriceInput alignRow label="Harga Jual per Ons"  value={form.price_per_ons} onChange={(e) => setForm({ ...form, price_per_ons: e.target.value })} />
                   </div>
                 </div>
               </>
             )}
 
-            <Input
-              label="Harga Antar Luar Kota (opsional — harga khusus barang ini, bukan biaya kirim)"
-              type="number"
-              value={form.out_of_town_price}
-              onChange={(e) => setForm({ ...form, out_of_town_price: e.target.value })}
-            />
+            <div className="border border-border rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium">Harga Khusus (Antar Luar Kota / Promo, dll — opsional)</p>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Label</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={form.out_of_town_label || ""}
+                    onChange={(e) => {
+                      if (e.target.value === "__new__") setAddingPriceLabel(true);
+                      else setForm({ ...form, out_of_town_label: e.target.value });
+                    }}
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                  >
+                    <option value="">— Pilih label —</option>
+                    {form.out_of_town_label && !priceLabels.some((l) => l.name === form.out_of_town_label) && (
+                      <option value={form.out_of_town_label}>{form.out_of_town_label}</option>
+                    )}
+                    {priceLabels.map((l) => (
+                      <option key={l.id} value={l.name}>{l.name}</option>
+                    ))}
+                    <option value="__new__">+ Tambah label baru…</option>
+                  </select>
+                  {form.out_of_town_label && (
+                    <button
+                      type="button"
+                      onClick={() => deletePriceLabel(form.out_of_town_label)}
+                      title="Hapus label ini dari daftar pilihan"
+                      className="shrink-0 rounded-lg border border-border p-2 text-danger hover:bg-danger-soft"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+                {addingPriceLabel && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      autoFocus
+                      value={newPriceLabel}
+                      onChange={(e) => setNewPriceLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          savePriceLabel();
+                        }
+                      }}
+                      placeholder="mis. Promo Lebaran, Antar Luar Kota"
+                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                    <Button variant="outline" onClick={savePriceLabel}>Simpan</Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setAddingPriceLabel(false);
+                        setNewPriceLabel("");
+                      }}
+                    >
+                      Batal
+                    </Button>
+                  </div>
+                )}
+                <p className="text-xs text-ink-muted mt-1">
+                  Pilih label yang pernah dipakai, atau tambah baru -- sekali ditambahkan, label ini muncul jadi
+                  pilihan buat produk lain juga. Cocok dipakai buat harga permanen (mis. "Antar Luar Kota") maupun
+                  harga promo sementara (mis. "Promo Lebaran").
+                </p>
+              </div>
+
+              <PriceInput
+                label="Harga"
+                value={form.out_of_town_price}
+                onChange={(e) => setForm({ ...form, out_of_town_price: e.target.value })}
+              />
+              <p className="text-xs text-ink-muted">
+                Kosongkan kolom Harga lalu Simpan untuk menghapus label & harga khusus ini dari produk (mis. kalau
+                promonya sudah habis) -- produknya sendiri tidak ikut terhapus.
+              </p>
+            </div>
 
             <Toggle checked={form.active} onChange={(v) => setForm({ ...form, active: v })} label="Produk aktif (tampil di kasir)" />
 

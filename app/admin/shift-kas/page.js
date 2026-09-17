@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDateTime } from "@/lib/format";
-import { Button, Card, Input, Modal, Select, Textarea, EmptyState, Badge, StatCard } from "@/components/ui/kit";
+import { Button, Card, Input, PriceInput, Modal, Select, Textarea, EmptyState, Badge, StatCard } from "@/components/ui/kit";
 
 function startOfMonth() {
   const d = new Date();
@@ -223,7 +223,7 @@ export default function ShiftKasPage() {
 
       {editCashier && (
         <Modal title={`Modal Awal - ${editCashier.full_name}`} onClose={() => setEditCashier(null)}>
-          <Input label="Jumlah Modal Awal (Rp)" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <PriceInput label="Jumlah Modal Awal (Rp)" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setEditCashier(null)}>Batal</Button>
             <Button onClick={saveOpeningCash} disabled={saving}>{saving ? "Menyimpan..." : "Simpan"}</Button>
@@ -240,7 +240,7 @@ export default function ShiftKasPage() {
             </Select>
             <Input label="Kategori (opsional)" placeholder="mis. Plastik & Kemasan" value={expForm.category} onChange={(e) => setExpForm({ ...expForm, category: e.target.value })} />
             <Textarea label="Deskripsi" placeholder="mis. Kantong plastik 2 pak" value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} rows={2} />
-            <Input label="Nominal (Rp)" type="number" value={expForm.amount} onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })} />
+            <PriceInput label="Nominal (Rp)" value={expForm.amount} onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })} />
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setExpenseModal(false)}>Batal</Button>

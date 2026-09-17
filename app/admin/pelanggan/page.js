@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah } from "@/lib/format";
-import { Button, Card, Input, Modal, Select, Textarea, Toggle, EmptyState, Badge } from "@/components/ui/kit";
+import { Button, Card, Input, PriceInput, Modal, Select, Textarea, Toggle, EmptyState, Badge } from "@/components/ui/kit";
 
 const empty = {
   id: null,
@@ -148,9 +148,8 @@ export default function PelangganPage() {
               onChange={(e) => setForm({ ...form, discount_percent: e.target.value })}
               hint="Diskon otomatis dipakai di kasir di atas harga grosir. Boleh desimal, mis. 2,5."
             />
-            <Input
+            <PriceInput
               label="Limit Kasbon (Rp)"
-              type="number"
               value={form.kasbon_limit}
               onChange={(e) => setForm({ ...form, kasbon_limit: e.target.value })}
               hint="Isi 0 berarti tanpa batas kasbon."
