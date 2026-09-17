@@ -55,6 +55,12 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
 
   const [cart, setCart] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  // Dipakai supaya kalau ada barang yang di-scan tapi sudah ada di keranjang,
+  // baris itu bisa "berkedip" sebentar (bumpIndex) sebagai penanda visual --
+  // dan rowRefs dipakai buat men-scroll baris itu ke tengah layar biar kasir
+  // langsung melihatnya walau baris tersebut lagi di luar area yang terlihat.
+  const [bumpIndex, setBumpIndex] = useState(null);
+  const rowRefs = useRef({});
   const [search, setSearch] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
   const [manualDiscount, setManualDiscount] = useState("");
@@ -123,33 +129,45 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   }, [cart, customer, deliveryFee, manualDiscount, taxInclusive]);
 
   // ---------- Tambah item ke keranjang ----------
-  const addToCart = useCallback((product, variant) => {
-    setCart((prev) => {
-      const idx = prev.findIndex((i) => i.product_id === product.id && i.price_type === variant.price_type);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
-        return next;
+  const addToCart = useCallback(
+    (product, variant) => {
+      const existingIndex = cart.findIndex((i) => i.product_id === product.id && i.price_type === variant.price_type);
+
+      if (existingIndex >= 0) {
+        // Barang ini sudah ada di keranjang (baris lama) -- daripada diam-diam
+        // menambah qty tanpa kasir sadar (rawan kelewat/ke-scan dobel tanpa
+        // ketahuan), pindahkan & sorot perhatian ke baris tersebut: dipilih
+        // (selectedIndex), di-scroll ke tengah layar kalau lagi di luar
+        // pandangan, dan dikasih efek "berkedip" sebentar.
+        const newQty = cart[existingIndex].qty + 1;
+        setCart((prev) => prev.map((it, i) => (i === existingIndex ? { ...it, qty: newQty } : it)));
+        setSelectedIndex(existingIndex);
+        setBumpIndex(existingIndex);
+        setTimeout(() => setBumpIndex((b) => (b === existingIndex ? null : b)), 900);
+        rowRefs.current[existingIndex]?.scrollIntoView({ behavior: "smooth", block: "center" });
+        toast.success(`${product.name} sudah ada di keranjang — qty jadi ${formatNumber(newQty, 2)}`, { id: "add-item" });
+      } else {
+        setCart((prev) => [
+          ...prev,
+          {
+            key: `${product.id}-${variant.price_type}-${Date.now()}`,
+            product_id: product.id,
+            name: product.name,
+            price_type: variant.price_type,
+            unit_price: variant.unit_price,
+            stock_factor: variant.stock_factor,
+            cost_price: Number(variant.cost_basis ?? product.cost_price ?? 0),
+            tax_rate: Number(product.tax_rate || 0),
+            qty: 1,
+          },
+        ]);
+        toast.success(`${product.name} ditambahkan`, { id: "add-item" });
       }
-      return [
-        ...prev,
-        {
-          key: `${product.id}-${variant.price_type}-${Date.now()}`,
-          product_id: product.id,
-          name: product.name,
-          price_type: variant.price_type,
-          unit_price: variant.unit_price,
-          stock_factor: variant.stock_factor,
-          cost_price: Number(variant.cost_basis ?? product.cost_price ?? 0),
-          tax_rate: Number(product.tax_rate || 0),
-          qty: 1,
-        },
-      ];
-    });
-    setSearch("");
-    toast.success(`${product.name} ditambahkan`, { id: "add-item" });
-    speakProductName(product.name);
-  }, []);
+      setSearch("");
+      speakProductName(product.name);
+    },
+    [cart]
+  );
 
   function handlePickProduct(product) {
     const variants = getPriceVariants(product);
@@ -491,13 +509,15 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
 
   // ---------- Checkout (F12 submit) ----------
   async function handleCheckout({ method, paid, change }) {
-    // Cegah menjual melebihi stok yang tersedia — jangan pernah izinkan checkout kalau begitu.
-    // Catatan: ini cuma pengecekan awal pakai data stok yang sedang tampil di
-    // layar (bisa sedikit basi). Yang menjamin stok tidak bentrok/salah kalau
-    // ada penjualan produk sama yang nyaris bersamaan adalah RPC
-    // adjust_branch_stock di database (lihat bagian bawah fungsi ini) —
-    // pengecekan di sini hanya mencegah kasir checkout kalau stok memang
-    // sudah jelas tidak cukup dari awal.
+    // Dulu di sini checkout DIBLOKIR total kalau stok tercatat kurang dari
+    // qty yang mau dijual. Sekarang tidak lagi diblokir -- karena data stok
+    // yang tercatat di sistem kadang salah input (bukan stok fisiknya yang
+    // benar-benar habis), jadi kasir tetap dibiarkan lanjut jual. Cuma
+    // dikasih peringatan (toast, tidak menghentikan proses) supaya kasir
+    // tetap sadar ada selisih catatan stok yang perlu dicek/dibetulkan nanti.
+    // Stok yang tercatat setelahnya boleh menjadi minus (mis. "-1") sebagai
+    // penanda ada input stok yang keliru -- lihat juga RPC adjust_branch_stock
+    // di database (migration-21) yang sudah tidak dibulatkan ke 0 lagi.
     const insufficient = [];
     for (const i of cart) {
       const product = products.find((p) => p.id === i.product_id);
@@ -508,8 +528,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
       }
     }
     if (insufficient.length > 0) {
-      toast.error(`Stok tidak cukup: ${insufficient.join(", ")}`, { duration: 5000 });
-      return;
+      toast(`Stok tercatat kurang: ${insufficient.join(", ")} — tetap diproses`, { duration: 5000, icon: "⚠️" });
     }
 
     // Cegah kasbon melebihi limit pelanggan (kalau limit diatur, 0 = tanpa batas)
@@ -999,16 +1018,31 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           // Versi HP: daftar hasil pencarian ditampilkan menurun (list ke bawah) di
           // bawah seluruh baris pencarian, supaya nama & harga barang kebaca penuh.
           <div className="border-b border-border bg-surface max-h-64 overflow-y-auto">
-            {searchResults.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => handlePickProduct(p)}
-                className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-sm border-b border-border last:border-b-0 hover:bg-primary-soft active:bg-primary-soft text-left"
-              >
-                <span className="font-medium truncate">{p.name}</span>
-                <span className="text-ink-muted shrink-0">{formatRupiah(p.sell_price)}</span>
-              </button>
-            ))}
+            {searchResults.map((p) => {
+              const stockQty = getBranchStock(p, sessionBranchId).stock_qty;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => handlePickProduct(p)}
+                  className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-sm border-b border-border last:border-b-0 hover:bg-primary-soft active:bg-primary-soft text-left"
+                >
+                  <span className="font-medium truncate flex-1">{p.name}</span>
+                  <span
+                    className={`shrink-0 text-xs rounded-full px-2 py-0.5 ${
+                      stockQty < 0
+                        ? "bg-danger-soft text-danger"
+                        : stockQty === 0
+                        ? "bg-warning-soft text-warning"
+                        : "bg-background text-ink-muted"
+                    }`}
+                    title="Sisa stok"
+                  >
+                    Stok {formatNumber(stockQty, 2)}
+                  </span>
+                  <span className="text-ink-muted shrink-0">{formatRupiah(p.sell_price)}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -1022,10 +1056,11 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
               cart.map((item, index) => (
                 <div
                   key={item.key}
+                  ref={(el) => (rowRefs.current[index] = el)}
                   onClick={() => setSelectedIndex(index)}
                   className={`rounded-xl border p-3 ${
                     selectedIndex === index ? "border-primary bg-primary-soft" : "border-border bg-surface"
-                  }`}
+                  } ${bumpIndex === index ? "cart-row-bump" : ""}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium flex-1 truncate">{item.name}</p>
@@ -1095,10 +1130,11 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 {cart.map((item, index) => (
                   <tr
                     key={item.key}
+                    ref={(el) => (rowRefs.current[index] = el)}
                     onClick={() => setSelectedIndex(index)}
                     className={`border-b border-border cursor-pointer ${
                       selectedIndex === index ? "bg-primary-soft" : "hover:bg-background"
-                    }`}
+                    } ${bumpIndex === index ? "cart-row-bump" : ""}`}
                   >
                     <td className="px-4 py-2.5">{item.name}</td>
                     <td className="px-4 py-2.5 text-xs" onClick={(e) => e.stopPropagation()}>

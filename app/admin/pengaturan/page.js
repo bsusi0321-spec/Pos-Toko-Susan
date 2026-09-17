@@ -242,7 +242,6 @@ export default function PengaturanPage() {
             <option value="image">Gambar (bisa GIF animasi)</option>
             <option value="video">Video (bergerak, paling "hidup")</option>
             <option value="full_design">Desain Penuh (1 gambar utuh, form menimpa persis di atasnya)</option>
-            <option value="animated_shop">Desain Animasi Toko (dibuat lewat kode, ada logo berkedip & produk jatuh)</option>
           </Select>
 
           {bgType === "color" && (
@@ -300,15 +299,6 @@ export default function PengaturanPage() {
                 'developer supaya posisinya disesuaikan ulang (FULL_DESIGN_LAYOUT di app/login/LoginForm.js).'
               }
             />
-          )}
-
-          {bgType === "animated_shop" && (
-            <div className="rounded-lg border border-border bg-background p-3 text-sm text-ink-muted">
-              Tidak perlu upload apa pun untuk mode ini — logo toko, animasi, dan produk yang
-              berjatuhan semuanya digambar langsung lewat kode. Nama toko diambil otomatis dari
-              kolom "Nama Toko" di atas, dan warna judul/aksen tombol tetap ikut pengaturan warna
-              di atas juga.
-            </div>
           )}
         </div>
       </Card>
