@@ -101,7 +101,12 @@ export default function PengaturanPage() {
       <Card title="Pengaturan Struk">
         <p className="text-xs text-ink-muted mb-3">
           Setelah transaksi kasir selesai, struk tampil dulu di layar (tidak langsung ke dialog cetak printer).
-          Kasir menekan tombol &quot;Cetak Struk&quot; di layar itu untuk mencetak, atau &quot;Lihat / Cetak Ulang Struk Terakhir&quot; untuk cetak ulang.
+          Ada 2 tombol cetak di layar itu: &quot;Cetak Struk (Dialog)&quot; lewat dialog cetak bawaan browser (perlu printer
+          sudah terpasang resmi di HP/komputer, cocok untuk printer USB/kabel atau yang sudah ada drivernya), atau
+          &quot;Sambungkan &amp; Cetak&quot; langsung ke printer thermal Bluetooth tanpa perlu driver apa pun (tombol ini
+          otomatis muncul kalau browsernya mendukung Bluetooth langsung -- Chrome di Android/Windows/Mac; tidak
+          didukung di Safari/iPhone). Kasir cukup pilih printernya sekali di awal shift, setelahnya tinggal tekan
+          &quot;Cetak Bluetooth&quot; setiap transaksi. Ada juga &quot;Lihat / Cetak Ulang Struk Terakhir&quot; untuk cetak ulang.
         </p>
         <Select
           label="Ukuran Kertas Printer"
