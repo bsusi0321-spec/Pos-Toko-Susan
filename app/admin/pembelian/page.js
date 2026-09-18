@@ -9,6 +9,7 @@ import { Button, Card, Input, PriceInput, Modal, Select, Textarea, EmptyState, B
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
 import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
+import ProductSearchInput from "@/components/ProductSearchInput";
 import { findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
 
@@ -489,14 +490,16 @@ export default function PembelianPage() {
             <p className="text-xs text-ink-muted mb-3">Pilih barang, lalu isi jumlah yang diterima di tingkatan harga yang sesuai (bisa lebih dari satu). Kolom "Harga Baru" boleh dikosongkan kalau harga tidak berubah dari supplier.</p>
 
             <div className="flex items-center gap-2 mb-4">
-              <Select
+              <ProductSearchInput
+                products={products}
                 value={draftProductId}
-                onChange={(e) => { setDraftProductId(e.target.value); setDraftTiers({}); }}
+                onSelect={(p) => {
+                  setDraftProductId(p.id);
+                  setDraftTiers({});
+                }}
+                placeholder="Ketik nama barang, atau scan barcode..."
                 className="flex-1"
-              >
-                <option value="">-- pilih barang (bisa scan barcode) --</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
+              />
               {isMobile && (
                 <CameraScanButton
                   onDetected={pickProductByCode}

@@ -11,6 +11,7 @@ import { findBarcodeConflict } from "@/lib/checkBarcodeOwner";
 import { useViewport } from "@/lib/useViewport";
 import { getBranchStock } from "@/lib/branchStock";
 import CameraScanButton from "@/components/CameraScanButton";
+import { matchesProductQuery } from "@/lib/search";
 
 const emptyForm = {
   id: null,
@@ -359,15 +360,9 @@ export default function ProdukPage() {
     }
   }
 
-  const filtered = products.filter((p) => {
-    const q = search.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      p.name.toLowerCase().includes(q) ||
-      (p.sku || "").toLowerCase().includes(q) ||
-      (p.product_barcodes || []).some((b) => b.barcode.toLowerCase().includes(q))
-    );
-  });
+  // Kata kunci boleh diketik sebagian & urutannya bebas, mis. "kecap
+  // banteng" tetap menemukan "Kecap Asin Banteng" — lihat lib/search.js.
+  const filtered = products.filter((p) => matchesProductQuery(p, search));
 
   return (
     <div className="space-y-5">

@@ -10,6 +10,7 @@ import { formatRupiah } from "@/lib/format";
 import { findBarcodeConflict } from "@/lib/checkBarcodeOwner";
 import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
+import ProductSearchInput from "@/components/ProductSearchInput";
 
 export default function LabelBarcodePage() {
   const supabase = createClient();
@@ -148,10 +149,15 @@ export default function LabelBarcodePage() {
 
       <Card title={form.editingId ? "Edit Barcode" : "Tambah Barcode / Label"}>
         <div className="grid sm:grid-cols-3 gap-3">
-          <Select label="Barang" value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
-            <option value="">-- pilih --</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
+          <div>
+            <label className="text-sm font-medium mb-1.5 leading-snug flex items-end min-h-[2.5rem]">Barang</label>
+            <ProductSearchInput
+              products={products}
+              value={form.product_id}
+              onSelect={(p) => setForm({ ...form, product_id: p.id })}
+              placeholder="Ketik nama barang..."
+            />
+          </div>
           <div>
             <label className="text-sm font-medium mb-1.5 leading-snug flex items-end min-h-[2.5rem]">Kode Barcode</label>
             <div className="flex items-center gap-2">

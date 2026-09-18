@@ -15,6 +15,7 @@ import { useViewport } from "@/lib/useViewport";
 import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
 import { normalizeBarcode, findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
+import { searchProducts } from "@/lib/search";
 
 import OpeningCashModal from "./components/OpeningCashModal";
 import CloseShiftModal from "./components/CloseShiftModal";
@@ -61,6 +62,11 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   // langsung melihatnya walau baris tersebut lagi di luar area yang terlihat.
   const [bumpIndex, setBumpIndex] = useState(null);
   const rowRefs = useRef({});
+  // Baris yang baru saja ditambahkan (barang baru hasil scan/klik) tapi
+  // belum sempat di-scroll ke layar -- di-scroll begitu barisnya sudah
+  // benar-benar ada di DOM (lewat useEffect di bawah), karena saat baris
+  // baru masih belum dirender, ref-nya belum ada.
+  const [pendingScrollIndex, setPendingScrollIndex] = useState(null);
   const [search, setSearch] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
   const [manualDiscount, setManualDiscount] = useState("");
@@ -85,21 +91,25 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
     setVoiceOn(isVoiceEnabled());
   }, []);
 
+  // Scroll ke baris barang baru begitu barisnya sudah benar-benar dirender
+  // (lihat catatan di pendingScrollIndex di atas).
+  useEffect(() => {
+    if (pendingScrollIndex === null) return;
+    const row = rowRefs.current[pendingScrollIndex];
+    if (row) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      setPendingScrollIndex(null);
+    }
+  }, [cart, pendingScrollIndex]);
+
   const searchRef = useRef(null);
 
   const customer = customers.find((c) => c.id === customerId);
 
   const searchResults = useMemo(() => {
-    if (!search.trim()) return [];
-    const q = search.trim().toLowerCase();
-    return products
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.sku || "").toLowerCase().includes(q) ||
-          (p.product_barcodes || []).some((b) => b.barcode.toLowerCase() === q)
-      )
-      .slice(0, 8);
+    // Kata kunci boleh diketik sebagian & urutannya bebas, mis. "kecap
+    // banteng" tetap menemukan "Kecap Asin Banteng" — lihat lib/search.js.
+    return searchProducts(products, search, 8);
   }, [search, products]);
 
   const taxInclusive = !!settings?.tax_price_inclusive;
@@ -147,6 +157,11 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         rowRefs.current[existingIndex]?.scrollIntoView({ behavior: "smooth", block: "center" });
         toast.success(`${product.name} sudah ada di keranjang — qty jadi ${formatNumber(newQty, 2)}`, { id: "add-item" });
       } else {
+        // Barang baru (belum ada di keranjang) -- ditambah di baris paling
+        // bawah, lalu ikutan disorot & di-scroll ke layar seperti barang
+        // yang di-scan ulang, supaya kasir langsung lihat barang barunya
+        // walau daftar keranjang sudah panjang & baris itu di luar layar.
+        const newIndex = cart.length;
         setCart((prev) => [
           ...prev,
           {
@@ -162,6 +177,10 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             qty: 1,
           },
         ]);
+        setSelectedIndex(newIndex);
+        setBumpIndex(newIndex);
+        setPendingScrollIndex(newIndex);
+        setTimeout(() => setBumpIndex((b) => (b === newIndex ? null : b)), 900);
         toast.success(`${product.name} ditambahkan`, { id: "add-item" });
       }
       setSearch("");
@@ -750,9 +769,11 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           supaya tinggi kontainer pas dengan layar yang benar-benar kelihatan di HP
           (dan tetap bekerja di browser/webview lama), sehingga baris atas (hamburger,
           status scanner) dan kolom pencarian tetap diam -- yang scroll cuma keranjang. */}
-      {/* SIDEBAR: hanya shortkey, diatur admin -- disembunyikan di HP (jadi menu geser), mengecil di tablet */}
-      {!isMobile && (
-        <aside className={`${isTablet ? "w-48" : "w-56"} shrink-0 border-r border-border bg-surface flex flex-col`}>
+      {/* SIDEBAR: hanya shortkey, diatur admin -- khusus desktop (>=1100px).
+          HP & Tablet sama-sama pakai menu geser (hamburger) di bawah, karena
+          di layar sempit sidebar permanen makan tempat area keranjang. */}
+      {!isMobile && !isTablet && (
+        <aside className="w-56 shrink-0 border-r border-border bg-surface flex flex-col">
           <div className="p-4 border-b border-border">
             <p className="text-sm font-semibold truncate">{settings?.store_name || "Toko"}</p>
             <p className="text-xs text-ink-muted truncate">{profile.full_name}</p>
@@ -769,18 +790,6 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             <div className="mt-2">
               <ScannerStatusWidget />
             </div>
-            {/* Tablet biasanya tidak punya scanner USB/Bluetooth seperti di kasir meja,
-                tapi ada kamera -- sediakan tombol scan kamera juga di sini (desktop
-                dibiarkan seperti semula, biasanya sudah pakai scanner fisik). */}
-            {isTablet && (
-              <button
-                type="button"
-                onClick={() => setCameraOpen(true)}
-                className="mt-2 w-full flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
-              >
-                <ScanLine size={14} /> Scan via Kamera
-              </button>
-            )}
           </div>
 
           <div className="flex-1 overflow-auto overscroll-contain p-3">
@@ -854,8 +863,8 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         </aside>
       )}
 
-      {/* MENU GESER (khusus HP): berisi semua yang ada di sidebar desktop, dibuka lewat tombol hamburger */}
-      {isMobile && mobileMenuOpen && (
+      {/* MENU GESER (khusus HP & Tablet): berisi semua yang ada di sidebar desktop, dibuka lewat tombol hamburger */}
+      {(isMobile || isTablet) && mobileMenuOpen && (
         <div className="fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)} />
           <aside className="relative w-72 max-w-[85vw] h-full bg-surface border-r border-border flex flex-col">
@@ -914,7 +923,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                   }}
                   className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
                 >
-                  Scan via Kamera HP
+                  Scan via Kamera
                 </button>
                 <button
                   onClick={() => lastReceipt && setReceiptModalOpen(true)}
@@ -954,8 +963,8 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
 
       {/* AREA KERANJANG */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Baris atas khusus HP: menu (hamburger) + konek scanner, DI ATAS kolom pencarian */}
-        {isMobile && (
+        {/* Baris atas khusus HP & Tablet: menu (hamburger) + konek scanner, DI ATAS kolom pencarian */}
+        {(isMobile || isTablet) && (
           <div className="shrink-0 sticky top-0 z-30 p-2.5 border-b border-border bg-surface flex items-center gap-2">
             <button onClick={() => setMobileMenuOpen(true)} className="p-2 rounded-lg border border-border hover:bg-background shrink-0">
               <Menu size={18} />
@@ -977,7 +986,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
               placeholder={`Cari nama barang... (${hotkeys.search})`}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
             />
-            {isMobile && (
+            {(isMobile || isTablet) && (
               <button
                 onClick={() => setCameraOpen(true)}
                 title="Pindai barcode dengan kamera"

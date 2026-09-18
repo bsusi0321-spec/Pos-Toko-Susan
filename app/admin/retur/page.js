@@ -9,6 +9,7 @@ import { Button, Card, EmptyState, Input, PriceInput, Select, Textarea, Badge } 
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
 import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
+import ProductSearchInput from "@/components/ProductSearchInput";
 import { findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
 
@@ -157,10 +158,13 @@ export default function ReturPage() {
           <div>
             <label className="text-sm font-medium mb-1.5 leading-snug flex items-end min-h-[2.5rem]">Pilih Barang</label>
             <div className="flex items-center gap-2">
-              <Select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} className="flex-1">
-                <option value="">-- pilih (bisa scan barcode) --</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
+              <ProductSearchInput
+                products={products}
+                value={form.product_id}
+                onSelect={(p) => setForm({ ...form, product_id: p.id })}
+                placeholder="Ketik nama barang, atau scan barcode..."
+                className="flex-1"
+              />
               {isMobile && <CameraScanButton onDetected={pickByBarcode} title="Cari barang pakai kamera" />}
             </div>
           </div>
