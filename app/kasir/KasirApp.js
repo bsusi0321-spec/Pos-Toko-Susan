@@ -253,8 +253,19 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
     }
     window.addEventListener(BARCODE_EVENT, onBarcodeEvent);
     return () => window.removeEventListener(BARCODE_EVENT, onBarcodeEvent);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products]);
+    // PENTING: harus ikut "handleBarcodeInput" di sini (bukan cuma "products").
+    // Sebelumnya efek ini cuma dipasang ulang kalau referensi array "products"
+    // berubah -- tapi "products" hanya DIISI SEKALI lalu ditambah isinya lewat
+    // .push() di tempat lain, jadi referensinya TIDAK PERNAH benar-benar
+    // berubah setelah render pertama. Akibatnya "onBarcodeEvent" di atas
+    // membeku memakai kondisi keranjang saat halaman BARU dibuka (biasanya
+    // kosong) selamanya -- jadi barang yang sama tidak pernah kedeteksi
+    // sudah ada di keranjang (gagal "menyatu"), dan baris baru dihitung di
+    // posisi yang salah (kursor terasa tidak berpindah dengan benar). Bug
+    // ini sama untuk SEMUA sumber scan (fisik, kamera sendiri, HP terpisah)
+    // -- cuma paling gampang ketahuan lewat HP terpisah karena baru sering
+    // dites belakangan.
+  }, [handleBarcodeInput]);
 
   // ---------- Shortkey kasir ----------
   useEffect(() => {
@@ -631,29 +642,46 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
       // pelanggan sudah diterima & transaksi sudah tercatat, jadi tidak
       // dibatalkan, tapi kasir/admin WAJIB diberi tahu supaya stok yang
       // gagal ke-update bisa dibetulkan manual.
+      // Diproses PARALEL (Promise.all), bukan satu-satu berurutan seperti
+      // sebelumnya -- soalnya tiap baris produk sudah dikunci sendiri-sendiri
+      // di database lewat RPC adjust_branch_stock, jadi aman dijalankan
+      // bersamaan sekalipun ada produk yang sama tercatat dua kali (Postgres
+      // yang akan mengurutkan otomatis untuk baris yang sama). Ini yang
+      // sebelumnya bikin checkout lambat kalau isi keranjang banyak: dulu
+      // tiap item nunggu 2 request selesai dulu sebelum lanjut ke item
+      // berikutnya, sekarang semua item jalan bersamaan.
       let anyLowStock = false;
       const stockErrors = [];
-      for (const i of cart) {
-        const product = products.find((p) => p.id === i.product_id);
-        const qtyOut = i.qty * i.stock_factor;
-        const { data: stockResult, error: stockErr } = await supabase
-          .rpc("adjust_branch_stock", { p_product_id: i.product_id, p_branch_id: sessionBranchId, p_delta: -qtyOut })
-          .single();
-        if (stockErr) {
-          stockErrors.push(product?.name || i.product_id);
+      const stockResults = await Promise.all(
+        cart.map(async (i) => {
+          const product = products.find((p) => p.id === i.product_id);
+          const qtyOut = i.qty * i.stock_factor;
+          const { data: stockResult, error: stockErr } = await supabase
+            .rpc("adjust_branch_stock", { p_product_id: i.product_id, p_branch_id: sessionBranchId, p_delta: -qtyOut })
+            .single();
+          if (stockErr) {
+            return { ok: false, product, productId: i.product_id };
+          }
+          const newStock = Number(stockResult?.new_stock ?? 0);
+          const minStock = Number(stockResult?.min_stock ?? 0);
+          const { error: moveErr } = await supabase.from("stock_movements").insert({
+            product_id: i.product_id,
+            branch_id: sessionBranchId,
+            movement_type: "penjualan",
+            qty: -qtyOut,
+            note: `Transaksi ${tx.id}`,
+            created_by: profile.id,
+          });
+          if (moveErr) console.error("Gagal mencatat pergerakan stok:", moveErr);
+          return { ok: true, product, newStock, minStock };
+        })
+      );
+      for (const r of stockResults) {
+        if (!r.ok) {
+          stockErrors.push(r.product?.name || r.productId);
           continue; // jangan catat pergerakan stok kalau stoknya sendiri gagal diupdate
         }
-        const newStock = Number(stockResult?.new_stock ?? 0);
-        const minStock = Number(stockResult?.min_stock ?? 0);
-        const { error: moveErr } = await supabase.from("stock_movements").insert({
-          product_id: i.product_id,
-          branch_id: sessionBranchId,
-          movement_type: "penjualan",
-          qty: -qtyOut,
-          note: `Transaksi ${tx.id}`,
-          created_by: profile.id,
-        });
-        if (moveErr) console.error("Gagal mencatat pergerakan stok:", moveErr);
+        const { product, newStock, minStock } = r;
         if (product) {
           const row = (product.product_branch_stock || []).find((s) => s.branch_id === sessionBranchId);
           if (row) row.stock_qty = newStock;
@@ -689,7 +717,9 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         }
       }
 
-      await logActivity(supabase, {
+      // Dijalankan di background (tidak ditunggu) -- fungsi logActivity sudah
+      // menangkap error-nya sendiri, jadi tidak perlu menahan struk tampil.
+      logActivity(supabase, {
         userId: profile.id,
         action: "checkout",
         entity: "transactions",
