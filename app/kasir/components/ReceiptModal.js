@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { Bluetooth } from "lucide-react";
 import { formatRupiah, formatNumber, formatDateTime, txCode } from "@/lib/format";
 import { shareReceiptToWhatsApp } from "@/lib/shareReceipt";
-import { isBleSupported, connectBluetoothPrinter, printReceiptBluetooth, getConnectedPrinterName } from "@/lib/blePrinter";
+import { printReceiptBluetooth, getConnectedPrinterName, hasSavedPrinter, subscribePrinterStatus } from "@/lib/blePrinter";
 
 const PRICE_TYPE_LABELS = {
   grosir: "Grosir",
@@ -20,47 +20,44 @@ const PRICE_TYPE_LABELS = {
 const PAYMENT_LABELS = { tunai: "Tunai", transfer: "Transfer", qris: "QRIS", kasbon: "Kasbon" };
 
 // Pratinjau struk di layar (bukan cuma cetak langsung ke printer) supaya kasir
-// selalu bisa MELIHAT struknya di aplikasi, terlepas dari ada/tidaknya printer
-// fisik yang terhubung. Ada 2 cara cetak: "Cetak Struk (Dialog)" tetap lewat
-// lib/printReceipt.js (dialog cetak browser, perlu printer sudah terpasang
-// resmi di OS), atau "Sambungkan & Cetak" lewat lib/blePrinter.js (langsung
-// ke printer thermal Bluetooth lewat Web Bluetooth, tanpa perlu driver OS --
-// tombol ini otomatis disembunyikan kalau browsernya tidak mendukung).
-export default function ReceiptModal({ data, onPrint, onClose }) {
+// selalu bisa MELIHAT struknya di aplikasi. Cetak fisiknya cuma ada SATU
+// tombol: "Cetak Struk" yang langsung mengirim struk ke printer Bluetooth
+// yang sudah tersambung (disambungkan sekali dari halaman Pengaturan) --
+// tidak ada dialog pilih printer atau langkah "sambungkan dulu" di sini,
+// karena koneksinya sudah dikelola & diingat secara global (lihat
+// lib/blePrinter.js dan components/BluetoothPrinterProvider.js).
+export default function ReceiptModal({ data, onClose }) {
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState(null);
-  const [btBusy, setBtBusy] = useState(false);
-  const [btPrinterName, setBtPrinterName] = useState(null);
+  const [printBusy, setPrintBusy] = useState(false);
+  const [printerName, setPrinterName] = useState(null);
   // Dihitung ulang di dalam useEffect (bukan langsung saat render) supaya
   // hasil render pertama di client sama persis dengan di server (server
-  // tidak punya "navigator.bluetooth" sama sekali) -- kalau dicek langsung
-  // saat render, tombolnya bisa "kedip" muncul/hilang saat halaman pertama
-  // dibuka (mismatch hydration Next.js).
-  const [bleSupported, setBleSupported] = useState(false);
-
+  // tidak punya "navigator.bluetooth" sama sekali) -- mencegah mismatch
+  // hydration Next.js.
   useEffect(() => {
-    setBtPrinterName(getConnectedPrinterName());
-    setBleSupported(isBleSupported());
+    setPrinterName(getConnectedPrinterName());
+    return subscribePrinterStatus((name) => setPrinterName(name));
   }, []);
 
-  async function handlePrintBluetooth() {
-    setBtBusy(true);
+  async function handlePrint() {
+    if (!printerName) {
+      toast.error(
+        hasSavedPrinter()
+          ? "Printer belum tersambung ulang. Buka halaman Pengaturan sebentar untuk sambungkan lagi."
+          : "Belum ada printer Bluetooth tersambung. Sambungkan dulu dari halaman Pengaturan.",
+        { id: "bt-print" }
+      );
+      return;
+    }
+    setPrintBusy(true);
     try {
-      if (!getConnectedPrinterName()) {
-        const { name } = await connectBluetoothPrinter();
-        setBtPrinterName(name);
-        toast.success(`Tersambung ke ${name}`, { id: "bt-printer" });
-      }
       await printReceiptBluetooth(data);
       toast.success("Struk dikirim ke printer", { id: "bt-print" });
     } catch (err) {
-      // Kalau user membatalkan dialog pilih perangkat, browser melempar
-      // NotFoundError -- itu bukan error sungguhan, jadi tidak perlu toast.
-      if (err?.name !== "NotFoundError") {
-        toast.error(err?.message || "Gagal cetak lewat Bluetooth", { id: "bt-print" });
-      }
+      toast.error(err?.message || "Gagal mencetak struk", { id: "bt-print" });
     } finally {
-      setBtBusy(false);
+      setPrintBusy(false);
     }
   }
   const receiptUrl =
@@ -110,7 +107,7 @@ export default function ReceiptModal({ data, onPrint, onClose }) {
 
           <div className="space-y-1.5">
             {(items || []).map((it, i) => {
-              const tierLabel = it.price_type_label || PRICE_TYPE_LABELS[it.price_type];
+              const tierLabel = it.price_type === "retail" ? null : (it.price_type_label || PRICE_TYPE_LABELS[it.price_type]);
               return (
                 <div key={i}>
                   <p>{it.name}{tierLabel ? <span className="text-xs text-ink-muted"> ({tierLabel})</span> : ""}</p>
@@ -172,9 +169,6 @@ export default function ReceiptModal({ data, onPrint, onClose }) {
         </div>
 
         <div className="p-4 border-t border-border flex flex-col gap-2">
-          {btPrinterName && (
-            <p className="text-[11px] text-ink-muted -mb-1">Printer Bluetooth: {btPrinterName}</p>
-          )}
           <div className="flex gap-2 flex-wrap">
             <button onClick={onClose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background">
               Tutup
@@ -192,21 +186,14 @@ export default function ReceiptModal({ data, onPrint, onClose }) {
               Kirim WhatsApp
             </button>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={onPrint} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background">
-              Cetak Struk (Dialog)
-            </button>
-            {bleSupported && (
-              <button
-                onClick={handlePrintBluetooth}
-                disabled={btBusy}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-white px-3 py-2.5 text-sm font-medium hover:bg-primary-hover disabled:opacity-60"
-              >
-                <Bluetooth size={15} />
-                {btBusy ? "Mencetak..." : btPrinterName ? "Cetak Bluetooth" : "Sambungkan & Cetak"}
-              </button>
-            )}
-          </div>
+          <button
+            onClick={handlePrint}
+            disabled={printBusy}
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-primary text-white px-3 py-2.5 text-sm font-medium hover:bg-primary-hover disabled:opacity-60"
+          >
+            <Bluetooth size={15} />
+            {printBusy ? "Mencetak..." : "Cetak Struk"}
+          </button>
         </div>
       </div>
     </div>

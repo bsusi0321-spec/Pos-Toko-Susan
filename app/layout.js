@@ -3,6 +3,7 @@ import { Toaster } from "react-hot-toast";
 import RegisterSW from "./RegisterSW";
 import ScannerProvider from "@/components/ScannerProvider";
 import GlobalScanToast from "@/components/GlobalScanToast";
+import BluetoothPrinterProvider from "@/components/BluetoothPrinterProvider";
 import { createClient } from "@/lib/supabase/server";
 
 export async function generateMetadata() {
@@ -47,6 +48,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="id" className="h-full">
       <body className="min-h-full flex flex-col">
+        <BluetoothPrinterProvider />
         <ScannerProvider>
           {children}
           <GlobalScanToast />

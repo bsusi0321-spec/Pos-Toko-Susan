@@ -100,7 +100,7 @@ export default function PublicReceiptPage() {
 
           <div className="space-y-1.5">
             {(items || []).map((it, i) => {
-              const tierLabel = it.price_type_label || PRICE_TYPE_LABELS[it.price_type];
+              const tierLabel = it.price_type === "retail" ? null : (it.price_type_label || PRICE_TYPE_LABELS[it.price_type]);
               return (
                 <div key={i}>
                   <p>

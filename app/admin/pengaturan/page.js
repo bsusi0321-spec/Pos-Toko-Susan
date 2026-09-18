@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button, Card, Input, Select, Textarea, Toggle } from "@/components/ui/kit";
 import ImageUploadField from "@/components/ui/ImageUploadField";
 import { LOGIN_FONTS, LOGIN_FONT_WEIGHTS } from "@/lib/loginFonts";
+import PrinterBluetoothControl from "@/components/PrinterBluetoothControl";
 
 function NotifTestButtons() {
   const [loading, setLoading] = useState(null);
@@ -100,14 +101,18 @@ export default function PengaturanPage() {
 
       <Card title="Pengaturan Struk">
         <p className="text-xs text-ink-muted mb-3">
-          Setelah transaksi kasir selesai, struk tampil dulu di layar (tidak langsung ke dialog cetak printer).
-          Ada 2 tombol cetak di layar itu: &quot;Cetak Struk (Dialog)&quot; lewat dialog cetak bawaan browser (perlu printer
-          sudah terpasang resmi di HP/komputer, cocok untuk printer USB/kabel atau yang sudah ada drivernya), atau
-          &quot;Sambungkan &amp; Cetak&quot; langsung ke printer thermal Bluetooth tanpa perlu driver apa pun (tombol ini
-          otomatis muncul kalau browsernya mendukung Bluetooth langsung -- Chrome di Android/Windows/Mac; tidak
-          didukung di Safari/iPhone). Kasir cukup pilih printernya sekali di awal shift, setelahnya tinggal tekan
-          &quot;Cetak Bluetooth&quot; setiap transaksi. Ada juga &quot;Lihat / Cetak Ulang Struk Terakhir&quot; untuk cetak ulang.
+          Sambungkan printer struk Bluetooth di sini SEKALI SAJA -- setelah tersambung, printernya akan diingat dan
+          otomatis nyambung lagi sendiri setiap aplikasi dibuka (tidak perlu disambungkan ulang tiap transaksi atau
+          tiap ganti halaman), dan hanya akan berhenti kalau tombol &quot;Putuskan Printer&quot; di bawah ini ditekan.
+          Setelah printer tersambung, di halaman kasir tombol &quot;Cetak Struk&quot; akan langsung mengirim struk ke
+          printer ini tanpa dialog cetak apa pun. <strong>Catatan:</strong> koneksi ini melekat ke perangkat/browser
+          yang dipakai menyambungkan, jadi kalau kasir mencetak dari HP/tablet yang berbeda dengan yang dipakai di
+          sini, printernya perlu disambungkan lagi dari perangkat kasir itu sendiri (tersedia juga di menu sidebar
+          halaman Kasir).
         </p>
+        <div className="mb-4 rounded-xl border border-border p-3">
+          <PrinterBluetoothControl />
+        </div>
         <Select
           label="Ukuran Kertas Printer"
           value={form.receipt_paper_size || "58mm"}

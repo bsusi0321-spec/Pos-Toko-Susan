@@ -8,9 +8,9 @@ import { formatRupiah, formatNumber, formatThousands, handleThousandsInputChange
 import { getPriceVariants } from "@/lib/pricing";
 import { logActivity } from "@/lib/logActivity";
 import { openCashDrawer } from "@/lib/cashDrawer";
-import { printReceipt } from "@/lib/printReceipt";
 import { useScanner, BARCODE_EVENT } from "@/components/ScannerProvider";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
+import PrinterBluetoothControl from "@/components/PrinterBluetoothControl";
 import { useViewport } from "@/lib/useViewport";
 import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
 import { normalizeBarcode, findProductByCode } from "@/lib/barcode";
@@ -866,6 +866,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             >
               Lihat / Cetak Ulang Struk Terakhir
             </button>
+            <PrinterBluetoothControl compact />
             <button
               onClick={() => {
                 if (cart.length > 0) {
@@ -962,6 +963,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 >
                   Lihat / Cetak Ulang Struk Terakhir
                 </button>
+                <PrinterBluetoothControl compact />
                 <button
                   onClick={() => {
                     if (cart.length > 0) {
@@ -1350,7 +1352,6 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
       {receiptModalOpen && lastReceipt && (
         <ReceiptModal
           data={lastReceipt}
-          onPrint={() => printReceipt(lastReceipt)}
           onClose={() => setReceiptModalOpen(false)}
         />
       )}
