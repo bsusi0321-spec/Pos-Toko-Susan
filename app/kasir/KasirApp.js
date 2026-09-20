@@ -13,6 +13,7 @@ import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import PrinterBluetoothControl from "@/components/PrinterBluetoothControl";
 import { useViewport } from "@/lib/useViewport";
 import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
+import { buildVoiceDictionaryMap } from "@/lib/voiceDictionary";
 import { normalizeBarcode, findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
 import { searchProducts } from "@/lib/search";
@@ -27,7 +28,7 @@ import CameraScannerModal from "./components/CameraScannerModal";
 import ReceiptModal from "./components/ReceiptModal";
 import { Volume2, VolumeX, Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen, Menu, X, ScanLine, Trash2, Building2 } from "lucide-react";
 
-export default function KasirApp({ profile, isAdminAccount, impersonating, initialShift, products, customers, settings, pendingTransactions, branches, resolvedBranchId }) {
+export default function KasirApp({ profile, isAdminAccount, impersonating, initialShift, products, customers, settings, pendingTransactions, branches, resolvedBranchId, voiceDictionary }) {
   const supabase = createClient();
   const router = useRouter();
 
@@ -36,6 +37,10 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   // aktif dan akun ini belum ditugaskan ke satu cabang tertentu), kasir
   // diminta memilih dulu lewat layar penuh sebelum bisa mulai transaksi.
   const [sessionBranchId, setSessionBranchId] = useState(resolvedBranchId || null);
+  // Dibangun sekali dari data kamus suara (menu admin "Kamus Suara") supaya
+  // tiap kali barang dibacakan, singkatan seperti SCHT/ML/KG sudah
+  // "diterjemahkan" dulu jadi kata lengkap -- lihat lib/voiceDictionary.js.
+  const voiceDictionaryMap = useMemo(() => buildVoiceDictionaryMap(voiceDictionary), [voiceDictionary]);
   const needsBranchPicker = !sessionBranchId && (branches || []).length > 0;
   const activeBranchName = (branches || []).find((b) => b.id === sessionBranchId)?.name;
 
@@ -184,7 +189,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         toast.success(`${product.name} ditambahkan`, { id: "add-item" });
       }
       setSearch("");
-      speakProductName(product.name);
+      speakProductName(product.name, voiceDictionaryMap);
     },
     [cart]
   );

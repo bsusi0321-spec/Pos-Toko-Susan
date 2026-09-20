@@ -36,7 +36,7 @@ export default async function KasirPage({ searchParams }) {
     .limit(1)
     .maybeSingle();
 
-  const [{ data: products }, { data: customers }, { data: settings }, { data: pendingTx }, { data: branches }] =
+  const [{ data: products }, { data: customers }, { data: settings }, { data: pendingTx }, { data: branches }, { data: voiceDictionary }] =
     await Promise.all([
       supabase
         .from("products")
@@ -54,6 +54,7 @@ export default async function KasirPage({ searchParams }) {
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
       supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
+      supabase.from("voice_dictionary").select("abbreviation, spoken_as"),
     ]);
 
   // Cabang untuk sesi kasir ini: kalau akun ini sudah ditugaskan ke satu cabang
@@ -75,6 +76,7 @@ export default async function KasirPage({ searchParams }) {
       pendingTransactions={pendingTx || []}
       branches={branches || []}
       resolvedBranchId={resolvedBranchId}
+      voiceDictionary={voiceDictionary || []}
     />
   );
 }

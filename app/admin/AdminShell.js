@@ -25,6 +25,7 @@ import {
   Sun,
   Receipt,
   Building2,
+  Volume2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useViewport } from "@/lib/useViewport";
@@ -37,6 +38,7 @@ const NAV = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/kasir", label: "Buka Kasir", icon: ShoppingBag },
   { href: "/admin/kasir-shortcut", label: "Shortcut Kasir", icon: Keyboard },
+  { href: "/admin/kamus-suara", label: "Kamus Suara", icon: Volume2 },
   { href: "/admin/kasbon", label: "Kasbon Pelanggan", icon: Wallet },
   { href: "/admin/retur", label: "Retur Barang", icon: Undo2 },
   { href: "/admin/shift-kas", label: "Shift & Kas", icon: Clock },
