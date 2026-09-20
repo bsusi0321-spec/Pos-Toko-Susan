@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { Bluetooth } from "lucide-react";
+import { Bluetooth, Printer } from "lucide-react";
 import { formatRupiah, formatNumber, formatDateTime, txCode } from "@/lib/format";
 import { shareReceiptToWhatsApp } from "@/lib/shareReceipt";
 import { printReceiptBluetooth, getConnectedPrinterName, hasSavedPrinter, subscribePrinterStatus } from "@/lib/blePrinter";
+import { printReceipt } from "@/lib/printReceipt";
 
 const PRICE_TYPE_LABELS = {
   grosir: "Grosir",
@@ -20,12 +21,13 @@ const PRICE_TYPE_LABELS = {
 const PAYMENT_LABELS = { tunai: "Tunai", transfer: "Transfer", qris: "QRIS", kasbon: "Kasbon" };
 
 // Pratinjau struk di layar (bukan cuma cetak langsung ke printer) supaya kasir
-// selalu bisa MELIHAT struknya di aplikasi. Cetak fisiknya cuma ada SATU
-// tombol: "Cetak Struk" yang langsung mengirim struk ke printer Bluetooth
-// yang sudah tersambung (disambungkan sekali dari halaman Pengaturan) --
-// tidak ada dialog pilih printer atau langkah "sambungkan dulu" di sini,
-// karena koneksinya sudah dikelola & diingat secara global (lihat
-// lib/blePrinter.js dan components/BluetoothPrinterProvider.js).
+// selalu bisa MELIHAT struknya di aplikasi. Ada 2 cara cetak fisik: "Cetak
+// Bluetooth" (langsung ke printer thermal Bluetooth yang sudah tersambung
+// dari halaman Pengaturan -- lihat lib/blePrinter.js), dan "Cetak (Kabel/USB)"
+// lewat dialog cetak bawaan browser (lib/printReceipt.js) -- ini WAJIB ada
+// untuk printer yang disambungkan pakai kabel USB/kabel data, karena printer
+// jenis itu tidak punya Bluetooth sama sekali dan cuma bisa dicetak lewat
+// driver printer yang sudah terpasang di OS (dialog cetak biasa).
 export default function ReceiptModal({ data, onClose }) {
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState(null);
@@ -40,7 +42,7 @@ export default function ReceiptModal({ data, onClose }) {
     return subscribePrinterStatus((name) => setPrinterName(name));
   }, []);
 
-  async function handlePrint() {
+  async function handlePrintBluetooth() {
     if (!printerName) {
       toast.error(
         hasSavedPrinter()
@@ -59,6 +61,10 @@ export default function ReceiptModal({ data, onClose }) {
     } finally {
       setPrintBusy(false);
     }
+  }
+
+  function handlePrintDialog() {
+    printReceipt(data);
   }
   const receiptUrl =
     data?.tx?.id && typeof window !== "undefined" ? `${window.location.origin}/struk/${data.tx.id}` : null;
@@ -170,29 +176,36 @@ export default function ReceiptModal({ data, onClose }) {
 
         <div className="p-4 border-t border-border flex flex-col gap-2">
           <div className="flex gap-2 flex-wrap">
-            <button onClick={onClose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background">
+            <button onClick={onClose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition">
               Tutup
             </button>
             <button
               onClick={() => setShowQr((v) => !v)}
-              className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background"
+              className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
             >
               {showQr ? "Sembunyikan QR" : "QR Ambil Struk"}
             </button>
             <button
               onClick={() => shareReceiptToWhatsApp(data)}
-              className="flex-1 rounded-lg border border-[#25D366] text-[#128C7E] px-3 py-2.5 text-sm font-medium hover:bg-[#25D366]/10"
+              className="flex-1 rounded-lg border border-[#25D366] text-[#128C7E] px-3 py-2.5 text-sm font-medium hover:bg-[#25D366]/10 active:scale-[0.97] active:bg-[#25D366]/10 transition"
             >
               Kirim WhatsApp
             </button>
           </div>
           <button
-            onClick={handlePrint}
+            onClick={handlePrintDialog}
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
+          >
+            <Printer size={15} />
+            Cetak (Kabel/USB)
+          </button>
+          <button
+            onClick={handlePrintBluetooth}
             disabled={printBusy}
-            className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-primary text-white px-3 py-2.5 text-sm font-medium hover:bg-primary-hover disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-primary text-white px-3 py-2.5 text-sm font-medium hover:bg-primary-hover active:scale-[0.97] transition disabled:opacity-60 disabled:active:scale-100"
           >
             <Bluetooth size={15} />
-            {printBusy ? "Mencetak..." : "Cetak Struk"}
+            {printBusy ? "Mencetak..." : "Cetak Bluetooth"}
           </button>
         </div>
       </div>
