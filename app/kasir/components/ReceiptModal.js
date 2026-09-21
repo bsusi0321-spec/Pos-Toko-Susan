@@ -3,11 +3,16 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { Bluetooth, Printer, Usb } from "lucide-react";
+import { Bluetooth, Usb } from "lucide-react";
 import { formatRupiah, formatNumber, formatDateTime, txCode } from "@/lib/format";
 import { shareReceiptToWhatsApp } from "@/lib/shareReceipt";
 import { printReceiptBluetooth, getConnectedPrinterName, hasSavedPrinter, subscribePrinterStatus } from "@/lib/blePrinter";
-import { printReceiptUsb, getConnectedPrinterName as getConnectedUsbPrinterName, hasSavedUsbPrinter, subscribeUsbPrinterStatus } from "@/lib/usbPrinter";
+import {
+  printReceiptUsb,
+  connectUsbPrinter,
+  autoReconnectUsbPrinter,
+  getConnectedUsbPrinterName,
+} from "@/lib/usbPrinter";
 import { printReceipt } from "@/lib/printReceipt";
 
 const PRICE_TYPE_LABELS = {
@@ -22,38 +27,29 @@ const PRICE_TYPE_LABELS = {
 const PAYMENT_LABELS = { tunai: "Tunai", transfer: "Transfer", qris: "QRIS", kasbon: "Kasbon" };
 
 // Pratinjau struk di layar (bukan cuma cetak langsung ke printer) supaya kasir
-// selalu bisa MELIHAT struknya di aplikasi. Ada 3 cara cetak fisik: "Cetak
-// Bluetooth" & "Cetak USB Langsung" (langsung ke printer thermal yang sudah
-// tersambung dari halaman Pengaturan -- lihat lib/blePrinter.js &
-// lib/usbPrinter.js), dan "Cetak (Kabel/USB)" lewat dialog cetak bawaan
-// browser (lib/printReceipt.js) sebagai cadangan kalau printernya sudah
-// terpasang lewat driver OS dan tidak bisa "direbut" langsung oleh WebUSB.
-// Kasir yang pilih sendiri mau pakai tombol yang mana -- tidak ada yang
-// otomatis dipilihkan, supaya tidak keliru kalau kebetulan ada lebih dari
-// satu printer/jalur yang tersambung sekaligus.
+// selalu bisa MELIHAT struknya di aplikasi. Ada DUA tombol cetak fisik:
+// 1. "Cetak Bluetooth" -- langsung mengirim struk ke printer Bluetooth yang
+//    sudah tersambung (koneksinya dikelola & diingat global, lihat
+//    lib/blePrinter.js dan components/BluetoothPrinterProvider.js).
+// 2. "Cetak Kabel" -- mengirim struk lewat kabel USB (lib/usbPrinter.js).
+//    Pertama kali ditekan muncul dialog pilih printer dari browser; sesudah
+//    itu printernya diingat dan tombol ini langsung mencetak.
 export default function ReceiptModal({ data, onClose }) {
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [printBusy, setPrintBusy] = useState(false);
-  const [usbPrintBusy, setUsbPrintBusy] = useState(false);
+  const [usbBusy, setUsbBusy] = useState(false);
   const [printerName, setPrinterName] = useState(null);
-  const [usbPrinterName, setUsbPrinterName] = useState(null);
   // Dihitung ulang di dalam useEffect (bukan langsung saat render) supaya
   // hasil render pertama di client sama persis dengan di server (server
-  // tidak punya "navigator.bluetooth"/"navigator.usb" sama sekali) --
-  // mencegah mismatch hydration Next.js.
+  // tidak punya "navigator.bluetooth" sama sekali) -- mencegah mismatch
+  // hydration Next.js.
   useEffect(() => {
     setPrinterName(getConnectedPrinterName());
-    setUsbPrinterName(getConnectedUsbPrinterName());
-    const unsubBt = subscribePrinterStatus((name) => setPrinterName(name));
-    const unsubUsb = subscribeUsbPrinterStatus((name) => setUsbPrinterName(name));
-    return () => {
-      unsubBt();
-      unsubUsb();
-    };
+    return subscribePrinterStatus((name) => setPrinterName(name));
   }, []);
 
-  async function handlePrintBluetooth() {
+  async function handlePrint() {
     if (!printerName) {
       toast.error(
         hasSavedPrinter()
@@ -73,31 +69,35 @@ export default function ReceiptModal({ data, onClose }) {
       setPrintBusy(false);
     }
   }
-
+  // Cetak lewat kabel USB. Alurnya satu tombol: kalau belum tersambung, coba
+  // sambung ulang printer yang tersimpan; kalau belum ada, tampilkan dialog
+  // pilih printer (harus dari klik ini) lalu langsung cetak. Kalau browser/OS
+  // tidak mengizinkan akses USB langsung (mis. printer dipegang driver
+  // Windows), otomatis jatuh ke dialog cetak biasa supaya kasir tetap bisa
+  // mencetak lewat kabel.
   async function handlePrintUsb() {
-    if (!usbPrinterName) {
-      toast.error(
-        hasSavedUsbPrinter()
-          ? "Printer USB belum tersambung ulang. Buka halaman Pengaturan sebentar untuk sambungkan lagi."
-          : "Belum ada printer USB tersambung. Sambungkan dulu dari halaman Pengaturan.",
-        { id: "usb-print" }
-      );
-      return;
-    }
-    setUsbPrintBusy(true);
+    setUsbBusy(true);
     try {
+      if (!getConnectedUsbPrinterName()) {
+        const auto = await autoReconnectUsbPrinter();
+        if (!auto) await connectUsbPrinter();
+      }
       await printReceiptUsb(data);
-      toast.success("Struk dikirim ke printer", { id: "usb-print" });
+      toast.success("Struk dikirim ke printer kabel", { id: "usb-print" });
     } catch (err) {
-      toast.error(err?.message || "Gagal mencetak struk", { id: "usb-print" });
+      // Dialog pilih printer ditutup tanpa memilih -- bukan kegagalan.
+      if (err?.name === "NotFoundError") return;
+      if (err?.canFallback) {
+        toast(`${err.message} Membuka dialog cetak biasa...`, { id: "usb-print", duration: 6000 });
+        printReceipt(data);
+        return;
+      }
+      toast.error(err?.message || "Gagal mencetak lewat kabel", { id: "usb-print" });
     } finally {
-      setUsbPrintBusy(false);
+      setUsbBusy(false);
     }
   }
 
-  function handlePrintDialog() {
-    printReceipt(data);
-  }
   const receiptUrl =
     data?.tx?.id && typeof window !== "undefined" ? `${window.location.origin}/struk/${data.tx.id}` : null;
 
@@ -208,45 +208,40 @@ export default function ReceiptModal({ data, onClose }) {
 
         <div className="p-4 border-t border-border flex flex-col gap-2">
           <div className="flex gap-2 flex-wrap">
-            <button onClick={onClose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition">
+            <button onClick={onClose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background">
               Tutup
             </button>
             <button
               onClick={() => setShowQr((v) => !v)}
-              className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
+              className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background"
             >
               {showQr ? "Sembunyikan QR" : "QR Ambil Struk"}
             </button>
             <button
               onClick={() => shareReceiptToWhatsApp(data)}
-              className="flex-1 rounded-lg border border-[#25D366] text-[#128C7E] px-3 py-2.5 text-sm font-medium hover:bg-[#25D366]/10 active:scale-[0.97] active:bg-[#25D366]/10 transition"
+              className="flex-1 rounded-lg border border-[#25D366] text-[#128C7E] px-3 py-2.5 text-sm font-medium hover:bg-[#25D366]/10"
             >
               Kirim WhatsApp
             </button>
           </div>
-          <button
-            onClick={handlePrintDialog}
-            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
-          >
-            <Printer size={15} />
-            Cetak (Kabel/USB)
-          </button>
-          <button
-            onClick={handlePrintUsb}
-            disabled={usbPrintBusy}
-            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition disabled:opacity-60 disabled:active:scale-100"
-          >
-            <Usb size={15} />
-            {usbPrintBusy ? "Mencetak..." : "Cetak USB Langsung"}
-          </button>
-          <button
-            onClick={handlePrintBluetooth}
-            disabled={printBusy}
-            className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-primary text-white px-3 py-2.5 text-sm font-medium hover:bg-primary-hover active:scale-[0.97] transition disabled:opacity-60 disabled:active:scale-100"
-          >
-            <Bluetooth size={15} />
-            {printBusy ? "Mencetak..." : "Cetak Bluetooth"}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={handlePrint}
+              disabled={printBusy || usbBusy}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-primary text-white px-3 py-2.5 text-sm font-medium hover:bg-primary-hover disabled:opacity-60"
+            >
+              <Bluetooth size={15} />
+              {printBusy ? "Mencetak..." : "Cetak Bluetooth"}
+            </button>
+            <button
+              onClick={handlePrintUsb}
+              disabled={printBusy || usbBusy}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-primary text-primary px-3 py-2.5 text-sm font-medium hover:bg-primary/10 disabled:opacity-60"
+            >
+              <Usb size={15} />
+              {usbBusy ? "Mencetak..." : "Cetak Kabel"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

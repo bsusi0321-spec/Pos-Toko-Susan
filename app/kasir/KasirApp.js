@@ -11,13 +11,13 @@ import { openCashDrawer } from "@/lib/cashDrawer";
 import { useScanner, BARCODE_EVENT } from "@/components/ScannerProvider";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import PrinterBluetoothControl from "@/components/PrinterBluetoothControl";
-import PrinterUsbControl from "@/components/PrinterUsbControl";
 import { useViewport } from "@/lib/useViewport";
 import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
 import { buildVoiceDictionaryMap } from "@/lib/voiceDictionary";
 import { normalizeBarcode, findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
 import { searchProducts } from "@/lib/search";
+import { getSavedTheme, saveTheme, applyTheme } from "@/lib/theme";
 
 import OpeningCashModal from "./components/OpeningCashModal";
 import CloseShiftModal from "./components/CloseShiftModal";
@@ -25,13 +25,56 @@ import VariantPickerModal from "./components/VariantPickerModal";
 import QtyModal from "./components/QtyModal";
 import PaymentModal from "./components/PaymentModal";
 import PendingListModal from "./components/PendingListModal";
+import MySalesModal from "./components/MySalesModal";
 import CameraScannerModal from "./components/CameraScannerModal";
 import ReceiptModal from "./components/ReceiptModal";
-import { Volume2, VolumeX, Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen, Menu, X, ScanLine, Trash2, Building2 } from "lucide-react";
+import { Volume2, VolumeX, Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen, Menu, X, ScanLine, Trash2, Building2, Moon, Sun } from "lucide-react";
 
 export default function KasirApp({ profile, isAdminAccount, impersonating, initialShift, products, customers, settings, pendingTransactions, branches, resolvedBranchId, voiceDictionary }) {
   const supabase = createClient();
   const router = useRouter();
+
+  // Muat ulang daftar barang otomatis kalau admin menambah/mengubah produk,
+  // TANPA keluar dari aplikasi dan TANPA menghapus keranjang/transaksi yang
+  // sedang berjalan (router.refresh() hanya mengambil ulang data dari server,
+  // state kasir di layar tidak direset).
+  // - Tabel "products" hanya berubah lewat aksi admin (penjualan tidak
+  //   menyentuhnya), jadi ini tidak membebani database saat ramai transaksi.
+  // - Ditunda ~2,5 detik supaya harga bertingkat/barcode yang disimpan admin
+  //   SETELAH baris produk utamanya ikut terbaca dalam sekali muat ulang.
+  // - Cadangan: kalau tab/app kembali dibuka setelah >30 detik, muat ulang
+  //   juga (jaga-jaga koneksi realtime sempat putus).
+  useEffect(() => {
+    let timer = null;
+    let lastRefresh = Date.now();
+
+    function scheduleRefresh(delay) {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        lastRefresh = Date.now();
+        router.refresh();
+      }, delay);
+    }
+
+    const channel = supabase
+      .channel("kasir-products-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => scheduleRefresh(2500))
+      .subscribe();
+
+    function onVisible() {
+      if (document.visibilityState === "visible" && Date.now() - lastRefresh > 30000) {
+        scheduleRefresh(300);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cabang aktif untuk sesi kasir ini (menentukan stok mana yang dipakai &
   // milik cabang mana transaksi ini tercatat). Kalau belum jelas (>1 cabang
@@ -86,6 +129,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   const [cameraOpen, setCameraOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [closeShiftOpen, setCloseShiftOpen] = useState(false);
+  const [mySalesOpen, setMySalesOpen] = useState(false);
   const { physicalActive, phoneConnected } = useScanner();
   const [voiceOn, setVoiceOn] = useState(true);
   const [lastReceipt, setLastReceipt] = useState(null);
@@ -96,6 +140,24 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   useEffect(() => {
     setVoiceOn(isVoiceEnabled());
   }, []);
+
+  // Tampilan terang/gelap: pilihan disimpan per perangkat (lib/theme.js).
+  // Kalau perangkat ini belum pernah memilih, pakai default dari Pengaturan Toko.
+  const [darkMode, setDarkMode] = useState(settings?.theme === "dark");
+  useEffect(() => {
+    const saved = getSavedTheme();
+    const initial = saved || (settings?.theme === "dark" ? "dark" : "light");
+    setDarkMode(initial === "dark");
+    applyTheme(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function toggleTheme() {
+    const next = darkMode ? "light" : "dark";
+    setDarkMode(next === "dark");
+    saveTheme(next);
+    applyTheme(next);
+  }
 
   // Scroll ke baris barang baru begitu barisnya sudah benar-benar dirender
   // (lihat catatan di pendingScrollIndex di atas).
@@ -284,7 +346,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
       // Modal yang butuh Enter/Escape sendiri (QtyModal, dll) sudah menangani
       // keyboard-nya masing-masing secara terpisah.
       const anyModalOpen =
-        !!variantProduct || !!qtyModalItem || paymentOpen || pendingOpen || cameraOpen || closeShiftOpen || receiptModalOpen;
+        !!variantProduct || !!qtyModalItem || paymentOpen || pendingOpen || cameraOpen || closeShiftOpen || receiptModalOpen || mySalesOpen;
       if (anyModalOpen) return;
 
       const tag = document.activeElement?.tagName;
@@ -342,7 +404,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
     window.addEventListener("keydown", onKeydownGlobal);
     return () => window.removeEventListener("keydown", onKeydownGlobal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, selectedIndex, hotkeys, variantProduct, qtyModalItem, paymentOpen, pendingOpen, cameraOpen, closeShiftOpen, receiptModalOpen]);
+  }, [cart, selectedIndex, hotkeys, variantProduct, qtyModalItem, paymentOpen, pendingOpen, cameraOpen, closeShiftOpen, receiptModalOpen, mySalesOpen]);
 
   function removeItem(index) {
     setCart((prev) => prev.filter((_, i) => i !== index));
@@ -799,6 +861,21 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
     return <OpeningCashModal amount={profile.default_opening_cash} onConfirm={handleOpenShift} loading={openingLoading} />;
   }
 
+  // Tombol ikon terang/gelap: ditaruh di samping tombol Scanner (sidebar desktop
+  // & baris atas HP/tablet). Ikon menunjukkan mode yang AKAN dipilih saat ditekan
+  // (sedang gelap -> tampil matahari), sama seperti tombol di header admin.
+  const themeToggleButton = (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      title={darkMode ? "Ganti ke mode terang" : "Ganti ke mode gelap"}
+      aria-label={darkMode ? "Ganti ke mode terang" : "Ganti ke mode gelap"}
+      className="shrink-0 rounded-lg border border-border p-2 hover:bg-background"
+    >
+      {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+    </button>
+  );
+
   return (
     <div className="flex flex-1 app-shell-height overflow-hidden bg-background">
       {/* Class "app-shell-height" (lihat globals.css) = tinggi 100dvh dengan fallback 100vh,
@@ -823,8 +900,9 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 Scanner {physicalActive || phoneConnected ? "Terhubung" : "Terputus"}
               </span>
             </div>
-            <div className="mt-2">
+            <div className="mt-2 flex items-center gap-1.5">
               <ScannerStatusWidget />
+              {themeToggleButton}
             </div>
           </div>
 
@@ -866,6 +944,12 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
               Suara Nama Barang: {voiceOn ? "Aktif" : "Mati"}
             </button>
             <button
+              onClick={() => setMySalesOpen(true)}
+              className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+            >
+              Penjualan Saya (Rekap)
+            </button>
+            <button
               onClick={() => lastReceipt && setReceiptModalOpen(true)}
               disabled={!lastReceipt}
               className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed"
@@ -873,7 +957,6 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
               Lihat / Cetak Ulang Struk Terakhir
             </button>
             <PrinterBluetoothControl compact />
-            <PrinterUsbControl compact />
             <button
               onClick={() => {
                 if (cart.length > 0) {
@@ -912,7 +995,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 <p className="text-xs text-ink-muted truncate">{profile.full_name}</p>
                 {impersonating && <p className="text-[10px] text-primary mt-0.5">Dibuka oleh admin</p>}
               </div>
-              <button onClick={() => setMobileMenuOpen(false)} className="p-1.5 rounded-lg hover:bg-background active:scale-90 active:bg-background transition">
+              <button onClick={() => setMobileMenuOpen(false)} className="p-1.5 rounded-lg hover:bg-background">
                 <X size={18} />
               </button>
             </div>
@@ -931,7 +1014,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                         key={a.key}
                         type="button"
                         onClick={() => triggerMobileShortcut(a.key)}
-                        className="w-full flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm bg-background hover:border-primary hover:bg-primary-soft active:scale-[0.97] active:bg-primary-soft transition text-left"
+                        className="w-full flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm bg-background hover:border-primary hover:bg-primary-soft active:bg-primary-soft transition text-left"
                       >
                         <Icon size={15} className="text-ink-muted shrink-0" />
                         <span className="flex-1 truncate">{a.label}</span>
@@ -949,7 +1032,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                     setVoiceOn(next);
                     setVoiceEnabled(next);
                   }}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
+                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
                 >
                   {voiceOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
                   Suara Nama Barang: {voiceOn ? "Aktif" : "Mati"}
@@ -957,21 +1040,20 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
-                    setCameraOpen(true);
+                    setMySalesOpen(true);
                   }}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
                 >
-                  Scan via Kamera
+                  Penjualan Saya (Rekap)
                 </button>
                 <button
                   onClick={() => lastReceipt && setReceiptModalOpen(true)}
                   disabled={!lastReceipt}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Lihat / Cetak Ulang Struk Terakhir
                 </button>
                 <PrinterBluetoothControl compact />
-                <PrinterUsbControl compact />
                 <button
                   onClick={() => {
                     if (cart.length > 0) {
@@ -980,17 +1062,17 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                     }
                     setCloseShiftOpen(true);
                   }}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
                 >
                   Tutup Shift
                 </button>
-                <button onClick={handleLogout} className="w-full rounded-lg px-3 py-2 text-xs font-medium text-danger hover:bg-danger-soft active:scale-[0.97] active:bg-danger-soft transition">
+                <button onClick={handleLogout} className="w-full rounded-lg px-3 py-2 text-xs font-medium text-danger hover:bg-danger-soft">
                   {impersonating ? "Kembali (Tanpa Tutup Shift)" : "Keluar (Tanpa Tutup Shift)"}
                 </button>
                 {isAdminAccount && (
                   <button
                     onClick={() => router.push("/admin/dashboard")}
-                    className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
+                    className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
                   >
                     ← Kembali ke Admin
                   </button>
@@ -1006,10 +1088,11 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         {/* Baris atas khusus HP & Tablet: menu (hamburger) + konek scanner, DI ATAS kolom pencarian */}
         {(isMobile || isTablet) && (
           <div className="shrink-0 sticky top-0 z-30 p-2.5 border-b border-border bg-surface flex items-center gap-2">
-            <button onClick={() => setMobileMenuOpen(true)} className="p-2 rounded-lg border border-border hover:bg-background active:scale-90 active:bg-background transition shrink-0">
+            <button onClick={() => setMobileMenuOpen(true)} className="p-2 rounded-lg border border-border hover:bg-background shrink-0">
               <Menu size={18} />
             </button>
             <ScannerStatusWidget />
+            {themeToggleButton}
             <span className="text-xs text-ink-muted truncate ml-auto">{profile.full_name}</span>
           </div>
         )}
@@ -1354,6 +1437,15 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           onClosed={async () => {
             await handleLogout();
           }}
+        />
+      )}
+
+      {mySalesOpen && (
+        <MySalesModal
+          cashierId={profile.id}
+          cashierName={profile.full_name}
+          shift={shift}
+          onClose={() => setMySalesOpen(false)}
         />
       )}
 

@@ -26,12 +26,14 @@ import {
   Receipt,
   Building2,
   Volume2,
+  Calculator,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useViewport } from "@/lib/useViewport";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import toast from "react-hot-toast";
 import { formatRupiah } from "@/lib/format";
+import { getSavedTheme, saveTheme, applyTheme } from "@/lib/theme";
 import { Menu, X } from "lucide-react";
 
 const NAV = [
@@ -42,6 +44,7 @@ const NAV = [
   { href: "/admin/kasbon", label: "Kasbon Pelanggan", icon: Wallet },
   { href: "/admin/retur", label: "Retur Barang", icon: Undo2 },
   { href: "/admin/shift-kas", label: "Shift & Kas", icon: Clock },
+  { href: "/admin/tutup-buku", label: "Tutup Buku Bulanan", icon: Calculator },
   { href: "/admin/produk", label: "Produk & Harga", icon: Package },
   { href: "/admin/label-barcode", label: "Label & Barcode", icon: Tags },
   { href: "/admin/supplier", label: "Supplier", icon: Truck },
@@ -61,6 +64,7 @@ export default function AdminShell({ profile, settings, children }) {
   const supabase = createClient();
   const { isMobile, isTablet } = useViewport();
   const [dark, setDark] = useState(settings?.theme === "dark");
+  const [themeReady, setThemeReady] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [lowStockItems, setLowStockItems] = useState([]);
@@ -75,9 +79,25 @@ export default function AdminShell({ profile, settings, children }) {
     setMobileNavOpen(false);
   }, [pathname]);
 
+  // Pilihan tema disimpan per perangkat (lib/theme.js). Kalau belum pernah
+  // memilih, pakai default dari Pengaturan Toko. "themeReady" mencegah tema
+  // default sempat menimpa pilihan tersimpan sebelum sempat dibaca.
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-  }, [dark]);
+    const saved = getSavedTheme();
+    if (saved) setDark(saved === "dark");
+    setThemeReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!themeReady) return;
+    applyTheme(dark ? "dark" : "light");
+  }, [dark, themeReady]);
+
+  function toggleDark() {
+    const next = !dark;
+    setDark(next);
+    saveTheme(next ? "dark" : "light");
+  }
 
   useEffect(() => {
     async function loadLowStock() {
@@ -250,7 +270,7 @@ export default function AdminShell({ profile, settings, children }) {
               </div>
             )}
           </div>
-          <button onClick={() => setDark((v) => !v)} className="p-2 rounded-lg hover:bg-background">
+          <button onClick={toggleDark} className="p-2 rounded-lg hover:bg-background">
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <div className="pl-2 ml-1 border-l border-border text-sm">

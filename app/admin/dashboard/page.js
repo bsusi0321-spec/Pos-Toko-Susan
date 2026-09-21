@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber, formatDateTime, formatDate } from "@/lib/format";
@@ -47,6 +48,8 @@ export default function DashboardPage() {
   const [todayProfit, setTodayProfit] = useState(0);
   const [monthProfit, setMonthProfit] = useState(0);
   const [supplierDebt, setSupplierDebt] = useState({ outstanding: [], totalOutstanding: 0, paidTransfer: 0, paidCash: 0 });
+  const [monthCashIn, setMonthCashIn] = useState(0);
+  const [monthCashOut, setMonthCashOut] = useState(0);
   const [pendingReturns, setPendingReturns] = useState([]);
   const [pendingTxCount, setPendingTxCount] = useState(0);
   const [exporting, setExporting] = useState(false);
@@ -112,7 +115,7 @@ export default function DashboardPage() {
     // cabang di dropdown (kosong = semua cabang digabung, seperti sebelumnya).
     const withBranch = (q) => (branchFilter ? q.eq("branch_id", branchFilter) : q);
 
-    const [{ data: tToday }, { data: tMonth }, { data: items }, { data: products }, { data: recentTx }, { data: trend }, { data: todayItems }, { data: pos }, { data: payments }, { data: pendingRet }, { count: productCount }, { count: pendingTxCnt }] =
+    const [{ data: tToday }, { data: tMonth }, { data: items }, { data: products }, { data: recentTx }, { data: trend }, { data: todayItems }, { data: pos }, { data: payments }, { data: pendingRet }, { count: productCount }, { count: pendingTxCnt }, { data: monthCashMovements }] =
       await Promise.all([
         withBranch(supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", today)),
         withBranch(supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", monthStart)),
@@ -170,6 +173,11 @@ export default function DashboardPage() {
         // Penjualan/Produk Terlaris/Laba manapun karena belum benar-benar lunas.
         // Ditampilkan terpisah di sini supaya kelihatan jelas, bukan "hilang".
         withBranch(supabase.from("transactions").select("id", { count: "exact", head: true }).eq("status", "pending")),
+        // Kas masuk/keluar toko bulan ini (dicatat di menu Shift & Kas) -- cuma
+        // ditampilkan sebagai INFORMASI di sini, TIDAK dipotong ke angka laba
+        // manapun di Dashboard. Potongannya baru benar-benar dihitung & dikunci
+        // manual oleh admin di menu "Tutup Buku Bulanan".
+        supabase.from("cash_movements").select("type, amount").gte("movement_date", monthStart),
       ]);
 
     setTotalProducts(productCount || 0);
@@ -244,6 +252,9 @@ export default function DashboardPage() {
     const totalOutstanding = (pos || []).reduce((s, p) => s + Number(p.remaining_debt), 0);
     setSupplierDebt({ outstanding: pos || [], totalOutstanding, paidTransfer, paidCash });
     setPendingReturns(pendingRet || []);
+
+    setMonthCashIn((monthCashMovements || []).filter((m) => m.type === "masuk").reduce((s, m) => s + Number(m.amount), 0));
+    setMonthCashOut((monthCashMovements || []).filter((m) => m.type === "keluar").reduce((s, m) => s + Number(m.amount), 0));
 
     setLastUpdated(new Date());
     setLoading(false);
@@ -391,6 +402,25 @@ export default function DashboardPage() {
         <StatCard label="Stok Menipis" value={lowStock.length} tone={lowStock.length > 0 ? "danger" : "default"} hint="Perlu perhatian" />
         <StatCard label="Total Produk" value={totalProducts} hint="Produk aktif di katalog" />
       </div>
+
+      <Card title="Kas & Pengeluaran Toko (Bulan Ini)">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+          <StatCard label="Kas Masuk Bulan Ini" value={formatRupiah(monthCashIn)} />
+          <StatCard label="Pengeluaran Bulan Ini" value={formatRupiah(monthCashOut)} tone="danger" />
+        </div>
+        <p className="text-xs text-ink-muted">
+          Angka ini murni informasi dari catatan di menu Shift & Kas -- <b>belum</b> dipotong ke &quot;Estimasi Laba&quot; di
+          atas. Untuk menghitung & mengunci laba bersih setelah dipotong pengeluaran, gunakan menu{" "}
+          <Link href="/admin/tutup-buku" className="text-primary underline">
+            Tutup Buku Bulanan
+          </Link>{" "}
+          (biasanya dilakukan admin di akhir bulan). Catat kas masuk/keluar baru lewat menu{" "}
+          <Link href="/admin/shift-kas" className="text-primary underline">
+            Shift &amp; Kas
+          </Link>
+          .
+        </p>
+      </Card>
 
       {pendingTxCount > 0 && (
         <div className="rounded-lg border border-warning/40 bg-warning-soft px-4 py-2.5 text-sm text-warning flex items-center gap-2">

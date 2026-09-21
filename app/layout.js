@@ -4,8 +4,8 @@ import RegisterSW from "./RegisterSW";
 import ScannerProvider from "@/components/ScannerProvider";
 import GlobalScanToast from "@/components/GlobalScanToast";
 import BluetoothPrinterProvider from "@/components/BluetoothPrinterProvider";
-import UsbPrinterProvider from "@/components/UsbPrinterProvider";
 import { createClient } from "@/lib/supabase/server";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 export async function generateMetadata() {
   const supabase = await createClient();
@@ -47,10 +47,12 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="id" className="h-full">
+    // suppressHydrationWarning: script tema di bawah menambah class "dark" ke <html>
+    // sebelum React jalan, jadi class-nya sengaja beda dari HTML dari server.
+    <html lang="id" className="h-full" suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <BluetoothPrinterProvider />
-        <UsbPrinterProvider />
         <ScannerProvider>
           {children}
           <GlobalScanToast />
