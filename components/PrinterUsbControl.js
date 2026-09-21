@@ -6,6 +6,7 @@ import { Usb } from "lucide-react";
 import {
   isWebUsbSupported,
   connectUsbPrinter,
+  connectUsbPrinterUnfiltered,
   disconnectUsbPrinter,
   getConnectedPrinterName,
   hasSavedUsbPrinter,
@@ -29,10 +30,10 @@ export default function PrinterUsbControl({ compact = false }) {
     return subscribeUsbPrinterStatus((name) => setPrinterName(name));
   }, []);
 
-  async function handleConnect() {
+  async function handleConnect(fn = connectUsbPrinter) {
     setBusy(true);
     try {
-      const { name } = await connectUsbPrinter();
+      const { name } = await fn();
       setPrinterName(name);
       setEverConnected(true);
       toast.success(`Tersambung ke ${name}. Printer ini akan tetap tersambung otomatis sampai diputuskan.`);
@@ -65,7 +66,7 @@ export default function PrinterUsbControl({ compact = false }) {
     return (
       <div className="space-y-1">
         <button
-          onClick={printerName ? handleDisconnect : handleConnect}
+          onClick={printerName ? handleDisconnect : () => handleConnect()}
           disabled={busy}
           className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition disabled:opacity-60"
         >
@@ -78,6 +79,15 @@ export default function PrinterUsbControl({ compact = false }) {
             ? "Sambungkan Ulang Printer USB"
             : "Sambungkan Printer USB"}
         </button>
+        {!printerName && (
+          <button
+            onClick={() => handleConnect(connectUsbPrinterUnfiltered)}
+            disabled={busy}
+            className="w-full text-center text-[11px] text-ink-muted hover:text-primary underline disabled:opacity-60"
+          >
+            Tidak muncul? Tampilkan semua perangkat USB
+          </button>
+        )}
       </div>
     );
   }
@@ -96,21 +106,32 @@ export default function PrinterUsbControl({ compact = false }) {
           <span className="text-ink-muted">Belum ada printer USB tersambung</span>
         )}
       </div>
-      <div className="flex gap-2">
-        <button
-          onClick={handleConnect}
-          disabled={busy}
-          className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-background disabled:opacity-60"
-        >
-          {busy ? "Menyambungkan..." : printerName ? "Ganti Printer" : "Sambungkan Printer USB"}
-        </button>
-        {(printerName || everConnected) && (
+      <div className="flex flex-col gap-1">
+        <div className="flex gap-2">
           <button
-            onClick={handleDisconnect}
+            onClick={() => handleConnect()}
             disabled={busy}
             className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-background disabled:opacity-60"
           >
-            Putuskan Printer
+            {busy ? "Menyambungkan..." : printerName ? "Ganti Printer" : "Sambungkan Printer USB"}
+          </button>
+          {(printerName || everConnected) && (
+            <button
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-background disabled:opacity-60"
+            >
+              Putuskan Printer
+            </button>
+          )}
+        </div>
+        {!printerName && (
+          <button
+            onClick={() => handleConnect(connectUsbPrinterUnfiltered)}
+            disabled={busy}
+            className="text-left text-xs text-ink-muted hover:text-primary underline disabled:opacity-60"
+          >
+            Printer tidak muncul di daftar? Tampilkan semua perangkat USB
           </button>
         )}
       </div>
