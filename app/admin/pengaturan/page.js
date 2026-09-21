@@ -7,6 +7,7 @@ import { Button, Card, Input, Select, Textarea, Toggle } from "@/components/ui/k
 import ImageUploadField from "@/components/ui/ImageUploadField";
 import { LOGIN_FONTS, LOGIN_FONT_WEIGHTS } from "@/lib/loginFonts";
 import PrinterBluetoothControl from "@/components/PrinterBluetoothControl";
+import PrinterUsbControl from "@/components/PrinterUsbControl";
 
 function NotifTestButtons() {
   const [loading, setLoading] = useState(null);
@@ -101,17 +102,21 @@ export default function PengaturanPage() {
 
       <Card title="Pengaturan Struk">
         <p className="text-xs text-ink-muted mb-3">
-          Sambungkan printer struk Bluetooth di sini SEKALI SAJA -- setelah tersambung, printernya akan diingat dan
-          otomatis nyambung lagi sendiri setiap aplikasi dibuka (tidak perlu disambungkan ulang tiap transaksi atau
-          tiap ganti halaman), dan hanya akan berhenti kalau tombol &quot;Putuskan Printer&quot; di bawah ini ditekan.
-          Setelah printer tersambung, di halaman kasir tombol &quot;Cetak Struk&quot; akan langsung mengirim struk ke
-          printer ini tanpa dialog cetak apa pun. <strong>Catatan:</strong> koneksi ini melekat ke perangkat/browser
-          yang dipakai menyambungkan, jadi kalau kasir mencetak dari HP/tablet yang berbeda dengan yang dipakai di
-          sini, printernya perlu disambungkan lagi dari perangkat kasir itu sendiri (tersedia juga di menu sidebar
-          halaman Kasir).
+          Sambungkan printer struk di sini SEKALI SAJA (Bluetooth atau USB, boleh dua-duanya sekaligus kalau perlu) --
+          setelah tersambung, printernya akan diingat dan otomatis nyambung lagi sendiri setiap aplikasi dibuka (tidak
+          perlu disambungkan ulang tiap transaksi atau tiap ganti halaman), dan hanya akan berhenti kalau tombol
+          &quot;Putuskan Printer&quot; ditekan. Setelah tersambung, di halaman kasir tombol cetaknya akan langsung
+          mengirim struk ke printer ini tanpa dialog cetak apa pun. <strong>Catatan:</strong> koneksi ini melekat ke
+          perangkat/browser yang dipakai menyambungkan, jadi kalau kasir mencetak dari HP/tablet/laptop yang berbeda
+          dengan yang dipakai di sini, printernya perlu disambungkan lagi dari perangkat kasir itu sendiri (tersedia
+          juga di menu sidebar halaman Kasir) -- ini normal, bukan error, dan tidak masalah kalau ada beberapa kasir
+          sekaligus menyambungkan printer yang sama dari perangkat masing-masing.
         </p>
-        <div className="mb-4 rounded-xl border border-border p-3">
+        <div className="mb-3 rounded-xl border border-border p-3">
           <PrinterBluetoothControl />
+        </div>
+        <div className="mb-4 rounded-xl border border-border p-3">
+          <PrinterUsbControl />
         </div>
         <Select
           label="Ukuran Kertas Printer"

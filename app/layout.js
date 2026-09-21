@@ -4,6 +4,7 @@ import RegisterSW from "./RegisterSW";
 import ScannerProvider from "@/components/ScannerProvider";
 import GlobalScanToast from "@/components/GlobalScanToast";
 import BluetoothPrinterProvider from "@/components/BluetoothPrinterProvider";
+import UsbPrinterProvider from "@/components/UsbPrinterProvider";
 import { createClient } from "@/lib/supabase/server";
 
 export async function generateMetadata() {
@@ -49,6 +50,7 @@ export default function RootLayout({ children }) {
     <html lang="id" className="h-full">
       <body className="min-h-full flex flex-col">
         <BluetoothPrinterProvider />
+        <UsbPrinterProvider />
         <ScannerProvider>
           {children}
           <GlobalScanToast />

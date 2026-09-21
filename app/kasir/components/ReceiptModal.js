@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { Bluetooth, Printer } from "lucide-react";
+import { Bluetooth, Printer, Usb } from "lucide-react";
 import { formatRupiah, formatNumber, formatDateTime, txCode } from "@/lib/format";
 import { shareReceiptToWhatsApp } from "@/lib/shareReceipt";
 import { printReceiptBluetooth, getConnectedPrinterName, hasSavedPrinter, subscribePrinterStatus } from "@/lib/blePrinter";
+import { printReceiptUsb, getConnectedPrinterName as getConnectedUsbPrinterName, hasSavedUsbPrinter, subscribeUsbPrinterStatus } from "@/lib/usbPrinter";
 import { printReceipt } from "@/lib/printReceipt";
 
 const PRICE_TYPE_LABELS = {
@@ -21,25 +22,35 @@ const PRICE_TYPE_LABELS = {
 const PAYMENT_LABELS = { tunai: "Tunai", transfer: "Transfer", qris: "QRIS", kasbon: "Kasbon" };
 
 // Pratinjau struk di layar (bukan cuma cetak langsung ke printer) supaya kasir
-// selalu bisa MELIHAT struknya di aplikasi. Ada 2 cara cetak fisik: "Cetak
-// Bluetooth" (langsung ke printer thermal Bluetooth yang sudah tersambung
-// dari halaman Pengaturan -- lihat lib/blePrinter.js), dan "Cetak (Kabel/USB)"
-// lewat dialog cetak bawaan browser (lib/printReceipt.js) -- ini WAJIB ada
-// untuk printer yang disambungkan pakai kabel USB/kabel data, karena printer
-// jenis itu tidak punya Bluetooth sama sekali dan cuma bisa dicetak lewat
-// driver printer yang sudah terpasang di OS (dialog cetak biasa).
+// selalu bisa MELIHAT struknya di aplikasi. Ada 3 cara cetak fisik: "Cetak
+// Bluetooth" & "Cetak USB Langsung" (langsung ke printer thermal yang sudah
+// tersambung dari halaman Pengaturan -- lihat lib/blePrinter.js &
+// lib/usbPrinter.js), dan "Cetak (Kabel/USB)" lewat dialog cetak bawaan
+// browser (lib/printReceipt.js) sebagai cadangan kalau printernya sudah
+// terpasang lewat driver OS dan tidak bisa "direbut" langsung oleh WebUSB.
+// Kasir yang pilih sendiri mau pakai tombol yang mana -- tidak ada yang
+// otomatis dipilihkan, supaya tidak keliru kalau kebetulan ada lebih dari
+// satu printer/jalur yang tersambung sekaligus.
 export default function ReceiptModal({ data, onClose }) {
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [printBusy, setPrintBusy] = useState(false);
+  const [usbPrintBusy, setUsbPrintBusy] = useState(false);
   const [printerName, setPrinterName] = useState(null);
+  const [usbPrinterName, setUsbPrinterName] = useState(null);
   // Dihitung ulang di dalam useEffect (bukan langsung saat render) supaya
   // hasil render pertama di client sama persis dengan di server (server
-  // tidak punya "navigator.bluetooth" sama sekali) -- mencegah mismatch
-  // hydration Next.js.
+  // tidak punya "navigator.bluetooth"/"navigator.usb" sama sekali) --
+  // mencegah mismatch hydration Next.js.
   useEffect(() => {
     setPrinterName(getConnectedPrinterName());
-    return subscribePrinterStatus((name) => setPrinterName(name));
+    setUsbPrinterName(getConnectedUsbPrinterName());
+    const unsubBt = subscribePrinterStatus((name) => setPrinterName(name));
+    const unsubUsb = subscribeUsbPrinterStatus((name) => setUsbPrinterName(name));
+    return () => {
+      unsubBt();
+      unsubUsb();
+    };
   }, []);
 
   async function handlePrintBluetooth() {
@@ -60,6 +71,27 @@ export default function ReceiptModal({ data, onClose }) {
       toast.error(err?.message || "Gagal mencetak struk", { id: "bt-print" });
     } finally {
       setPrintBusy(false);
+    }
+  }
+
+  async function handlePrintUsb() {
+    if (!usbPrinterName) {
+      toast.error(
+        hasSavedUsbPrinter()
+          ? "Printer USB belum tersambung ulang. Buka halaman Pengaturan sebentar untuk sambungkan lagi."
+          : "Belum ada printer USB tersambung. Sambungkan dulu dari halaman Pengaturan.",
+        { id: "usb-print" }
+      );
+      return;
+    }
+    setUsbPrintBusy(true);
+    try {
+      await printReceiptUsb(data);
+      toast.success("Struk dikirim ke printer", { id: "usb-print" });
+    } catch (err) {
+      toast.error(err?.message || "Gagal mencetak struk", { id: "usb-print" });
+    } finally {
+      setUsbPrintBusy(false);
     }
   }
 
@@ -198,6 +230,14 @@ export default function ReceiptModal({ data, onClose }) {
           >
             <Printer size={15} />
             Cetak (Kabel/USB)
+          </button>
+          <button
+            onClick={handlePrintUsb}
+            disabled={usbPrintBusy}
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2.5 text-sm font-medium hover:bg-background active:scale-[0.97] active:bg-background transition disabled:opacity-60 disabled:active:scale-100"
+          >
+            <Usb size={15} />
+            {usbPrintBusy ? "Mencetak..." : "Cetak USB Langsung"}
           </button>
           <button
             onClick={handlePrintBluetooth}

@@ -11,6 +11,7 @@ import { openCashDrawer } from "@/lib/cashDrawer";
 import { useScanner, BARCODE_EVENT } from "@/components/ScannerProvider";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import PrinterBluetoothControl from "@/components/PrinterBluetoothControl";
+import PrinterUsbControl from "@/components/PrinterUsbControl";
 import { useViewport } from "@/lib/useViewport";
 import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
 import { buildVoiceDictionaryMap } from "@/lib/voiceDictionary";
@@ -872,6 +873,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
               Lihat / Cetak Ulang Struk Terakhir
             </button>
             <PrinterBluetoothControl compact />
+            <PrinterUsbControl compact />
             <button
               onClick={() => {
                 if (cart.length > 0) {
@@ -910,7 +912,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 <p className="text-xs text-ink-muted truncate">{profile.full_name}</p>
                 {impersonating && <p className="text-[10px] text-primary mt-0.5">Dibuka oleh admin</p>}
               </div>
-              <button onClick={() => setMobileMenuOpen(false)} className="p-1.5 rounded-lg hover:bg-background">
+              <button onClick={() => setMobileMenuOpen(false)} className="p-1.5 rounded-lg hover:bg-background active:scale-90 active:bg-background transition">
                 <X size={18} />
               </button>
             </div>
@@ -929,7 +931,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                         key={a.key}
                         type="button"
                         onClick={() => triggerMobileShortcut(a.key)}
-                        className="w-full flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm bg-background hover:border-primary hover:bg-primary-soft active:bg-primary-soft transition text-left"
+                        className="w-full flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm bg-background hover:border-primary hover:bg-primary-soft active:scale-[0.97] active:bg-primary-soft transition text-left"
                       >
                         <Icon size={15} className="text-ink-muted shrink-0" />
                         <span className="flex-1 truncate">{a.label}</span>
@@ -947,7 +949,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                     setVoiceOn(next);
                     setVoiceEnabled(next);
                   }}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
                 >
                   {voiceOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
                   Suara Nama Barang: {voiceOn ? "Aktif" : "Mati"}
@@ -957,18 +959,19 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                     setMobileMenuOpen(false);
                     setCameraOpen(true);
                   }}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
                 >
                   Scan via Kamera
                 </button>
                 <button
                   onClick={() => lastReceipt && setReceiptModalOpen(true)}
                   disabled={!lastReceipt}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
                 >
                   Lihat / Cetak Ulang Struk Terakhir
                 </button>
                 <PrinterBluetoothControl compact />
+                <PrinterUsbControl compact />
                 <button
                   onClick={() => {
                     if (cart.length > 0) {
@@ -977,17 +980,17 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                     }
                     setCloseShiftOpen(true);
                   }}
-                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
                 >
                   Tutup Shift
                 </button>
-                <button onClick={handleLogout} className="w-full rounded-lg px-3 py-2 text-xs font-medium text-danger hover:bg-danger-soft">
+                <button onClick={handleLogout} className="w-full rounded-lg px-3 py-2 text-xs font-medium text-danger hover:bg-danger-soft active:scale-[0.97] active:bg-danger-soft transition">
                   {impersonating ? "Kembali (Tanpa Tutup Shift)" : "Keluar (Tanpa Tutup Shift)"}
                 </button>
                 {isAdminAccount && (
                   <button
                     onClick={() => router.push("/admin/dashboard")}
-                    className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+                    className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background active:scale-[0.97] active:bg-background transition"
                   >
                     ← Kembali ke Admin
                   </button>
@@ -1003,7 +1006,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
         {/* Baris atas khusus HP & Tablet: menu (hamburger) + konek scanner, DI ATAS kolom pencarian */}
         {(isMobile || isTablet) && (
           <div className="shrink-0 sticky top-0 z-30 p-2.5 border-b border-border bg-surface flex items-center gap-2">
-            <button onClick={() => setMobileMenuOpen(true)} className="p-2 rounded-lg border border-border hover:bg-background shrink-0">
+            <button onClick={() => setMobileMenuOpen(true)} className="p-2 rounded-lg border border-border hover:bg-background active:scale-90 active:bg-background transition shrink-0">
               <Menu size={18} />
             </button>
             <ScannerStatusWidget />
