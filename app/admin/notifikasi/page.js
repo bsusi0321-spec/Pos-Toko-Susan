@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { formatRupiah, formatDateTime, formatNumber } from "@/lib/format";
 import { Card, EmptyState, Badge } from "@/components/ui/kit";
 
@@ -27,8 +28,11 @@ export default function NotifikasiPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: stock }, { data: tx }] = await Promise.all([
-      supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)"),
+    const [stock, { data: tx }] = await Promise.all([
+      fetchAllRowsOrEmpty(
+        () => supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)"),
+        { orderBy: ["product_id", "branch_id"] }
+      ),
       supabase
         .from("transactions")
         .select("*, profiles(full_name)")

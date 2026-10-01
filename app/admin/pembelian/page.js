@@ -12,6 +12,7 @@ import CameraScanButton from "@/components/CameraScanButton";
 import ProductSearchInput from "@/components/ProductSearchInput";
 import { findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
+import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 // Susunan kolom tingkatan harga per tipe produk, lengkap dengan modal & harga jual
 // yang sudah ada di data produk (jadi tidak perlu diketik ulang, cukup lihat sebagai
@@ -93,18 +94,24 @@ export default function PembelianPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: o }, { data: s }, { data: p }, { data: b }] = await Promise.all([
-      supabase.from("purchase_orders").select("*, suppliers(name), branches(name), purchase_order_items(*, products(name))").order("created_at", { ascending: false }),
-      supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
+    const [o, s, { data: b }] = await Promise.all([
+      // Nota pembelian & supplier lewat fetchAllRows supaya tidak kepotong 1000 baris.
+      fetchAllRowsOrEmpty(() => supabase.from("purchase_orders").select("*, suppliers(name), branches(name), purchase_order_items(*, products(name))").order("created_at", { ascending: false })),
+      fetchAllRowsOrEmpty(() => supabase.from("suppliers").select("id, name").eq("active", true).order("name")),
+      supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
+    ]);
+    // Ditarik terpisah lewat fetchAllRows: Supabase membatasi maksimal 1000
+    // baris per query, jadi kalau produk sudah lebih dari 1000, sebagian
+    // tidak akan muncul di form pembelian kalau ditarik dengan cara biasa.
+    const p = await fetchAllRows(() =>
       supabase
         .from("products")
         .select(
           "id, name, unit_type, cost_price, sell_price, sku, product_barcodes(barcode), product_wholesale_pricing(*), product_kg_pricing(*), product_branch_stock(*)"
         )
         .eq("active", true)
-        .order("name"),
-      supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
-    ]);
+        .order("name")
+    );
     setOrders(o || []);
     setSuppliers(s || []);
     setProducts(p || []);
@@ -439,7 +446,7 @@ export default function PembelianPage() {
                   </div>
                 </div>
                 <div className="text-xs text-ink-muted mb-2">
-                  {(o.purchase_order_items || []).map((it) => `${it.products?.name} x${it.qty}`).join(", ")}
+                  {(o.purchase_order_items || []).map((it) => `${it.products?.name || it.product_name || "(produk sudah dihapus)"} x${it.qty}`).join(", ")}
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex gap-4">

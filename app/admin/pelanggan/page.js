@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { formatRupiah } from "@/lib/format";
 import { Button, Card, Input, PriceInput, Modal, Select, Textarea, Toggle, EmptyState, Badge } from "@/components/ui/kit";
 
@@ -32,7 +33,7 @@ export default function PelangganPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("customers").select("*").order("created_at", { ascending: false });
+    const data = await fetchAllRowsOrEmpty(() => supabase.from("customers").select("*").order("created_at", { ascending: false }));
     setRows(data || []);
     setLoading(false);
   }
@@ -90,6 +91,7 @@ export default function PelangganPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Nama</th>
                   <th className="text-left py-2 pr-3 font-medium">Tipe</th>
                   <th className="text-right py-2 pr-3 font-medium">Diskon</th>
@@ -99,8 +101,9 @@ export default function PelangganPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((c) => (
+                {rows.map((c, i) => (
                   <tr key={c.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3">
                       <p>{c.name}</p>
                       <p className="text-xs text-ink-muted">{c.phone}</p>

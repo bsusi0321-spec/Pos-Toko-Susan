@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { Button, Card, Input, Modal, EmptyState } from "@/components/ui/kit";
 
 const empty = { id: null, abbreviation: "", spoken_as: "" };
@@ -34,7 +35,7 @@ export default function KamusSuaraPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("voice_dictionary").select("*").order("abbreviation", { ascending: true });
+    const data = await fetchAllRowsOrEmpty(() => supabase.from("voice_dictionary").select("*").order("abbreviation", { ascending: true }));
     setRows(data || []);
     setLoading(false);
   }
@@ -112,14 +113,16 @@ export default function KamusSuaraPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-ink-muted border-b border-border">
+                  <th className="px-3 py-2 font-medium w-10">No</th>
                   <th className="px-3 py-2 font-medium">Singkatan</th>
                   <th className="px-3 py-2 font-medium">Dibaca Sebagai</th>
                   <th className="px-3 py-2 font-medium text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {filtered.map((r, i) => (
                   <tr key={r.id} className="border-b border-border last:border-0 hover:bg-background">
+                    <td className="px-3 py-2 text-ink-muted">{i + 1}</td>
                     <td className="px-3 py-2 font-mono font-medium">{r.abbreviation}</td>
                     <td className="px-3 py-2">{r.spoken_as}</td>
                     <td className="px-3 py-2">

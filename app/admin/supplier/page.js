@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { Button, Card, Input, Modal, Textarea, Toggle, EmptyState, Badge } from "@/components/ui/kit";
 
 const empty = { id: null, name: "", contact_person: "", phone: "", address: "", notes: "", active: true };
@@ -21,7 +22,7 @@ export default function SupplierPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("suppliers").select("*").order("created_at", { ascending: false });
+    const data = await fetchAllRowsOrEmpty(() => supabase.from("suppliers").select("*").order("created_at", { ascending: false }));
     setRows(data || []);
     setLoading(false);
   }

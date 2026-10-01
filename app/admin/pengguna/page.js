@@ -90,6 +90,7 @@ export default function PenggunaPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Nama</th>
                   <th className="text-left py-2 pr-3 font-medium">Username</th>
                   <th className="text-left py-2 pr-3 font-medium">Peran</th>
@@ -100,8 +101,9 @@ export default function PenggunaPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((u) => (
+                {rows.map((u, i) => (
                   <tr key={u.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3">{u.full_name}</td>
                     <td className="py-2.5 pr-3 font-mono text-xs">{u.username}</td>
                     <td className="py-2.5 pr-3 capitalize">{u.role}</td>

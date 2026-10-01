@@ -189,6 +189,7 @@ export default function ShiftKasPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Kasir</th>
                   <th className="text-right py-2 pr-3 font-medium">Modal Awal</th>
                   <th className="text-left py-2 pr-3 font-medium">Mulai</th>
@@ -199,8 +200,9 @@ export default function ShiftKasPage() {
                 </tr>
               </thead>
               <tbody>
-                {shifts.map((s) => (
+                {shifts.map((s, i) => (
                   <tr key={s.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3">{s.profiles?.full_name}</td>
                     <td className="py-2.5 pr-3 text-right">{formatRupiah(s.opening_cash)}</td>
                     <td className="py-2.5 pr-3">{formatDateTime(s.opening_time)}</td>

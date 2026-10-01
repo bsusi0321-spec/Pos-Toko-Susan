@@ -106,6 +106,7 @@ export default function CabangPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Nama Cabang</th>
                   <th className="text-left py-2 pr-3 font-medium">Alamat</th>
                   <th className="text-left py-2 pr-3 font-medium">Telepon</th>
@@ -114,8 +115,9 @@ export default function CabangPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((b) => (
+                {rows.map((b, i) => (
                   <tr key={b.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3 font-medium">{b.name}</td>
                     <td className="py-2.5 pr-3 text-ink-muted">{b.address || "-"}</td>
                     <td className="py-2.5 pr-3 text-ink-muted">{b.phone || "-"}</td>

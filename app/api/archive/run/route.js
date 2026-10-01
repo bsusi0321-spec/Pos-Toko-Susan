@@ -25,16 +25,17 @@ async function runArchive(service, triggerType, triggeredBy) {
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - settings.archive_after_months);
 
-  const { data: rows, error } = await service
+  // Jumlah baris dihitung lewat { count: "exact" } (bukan dari daftar id yang
+  // dikembalikan), supaya tetap benar walau yang diarsipkan lebih dari 1000 baris.
+  const { count: archivedCount, error } = await service
     .from("transactions")
-    .update({ archived: true, archived_at: new Date().toISOString() })
+    .update({ archived: true, archived_at: new Date().toISOString() }, { count: "exact" })
     .eq("archived", false)
-    .lt("created_at", cutoff.toISOString())
-    .select("id");
+    .lt("created_at", cutoff.toISOString());
 
   if (error) throw error;
 
-  const count = rows?.length || 0;
+  const count = archivedCount || 0;
 
   await service.from("archive_settings").update({ last_run_at: new Date().toISOString() }).eq("id", 1);
   await service.from("archive_runs").insert({

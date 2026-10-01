@@ -12,6 +12,7 @@ import CameraScanButton from "@/components/CameraScanButton";
 import ProductSearchInput from "@/components/ProductSearchInput";
 import { findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
+import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 export default function ReturPage() {
   const supabase = createClient();
@@ -48,12 +49,16 @@ export default function ReturPage() {
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
     await supabase.from("returns").delete().eq("pickup_status", "sudah_diambil").lt("picked_up_at", oneMonthAgo.toISOString());
 
-    const [{ data: p }, { data: s }, { data: r }, { data: b }] = await Promise.all([
-      supabase.from("products").select("id, name, sell_price, sku, product_barcodes(barcode), product_branch_stock(*)").eq("active", true).order("name"),
-      supabase.from("suppliers").select("id, name").eq("active", true).order("name"),
+    const [s, { data: r }, { data: b }] = await Promise.all([
+      fetchAllRowsOrEmpty(() => supabase.from("suppliers").select("id, name").eq("active", true).order("name")),
       supabase.from("returns").select("*, products(name), suppliers:reference_supplier_id(name), branches(name)").order("created_at", { ascending: false }).limit(100),
       supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
     ]);
+    // Ditarik terpisah lewat fetchAllRows supaya tidak kepotong batas 1000
+    // baris bawaan Supabase kalau produk sudah lebih dari 1000.
+    const p = await fetchAllRows(() =>
+      supabase.from("products").select("id, name, sell_price, sku, product_barcodes(barcode), product_branch_stock(*)").eq("active", true).order("name")
+    );
     setProducts(p || []);
     setSuppliers(s || []);
     setReturns(r || []);
@@ -198,7 +203,7 @@ export default function ReturPage() {
             {pendingSupplierReturns.map((r) => (
               <div key={r.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border last:border-0">
                 <div>
-                  <p className="font-medium">{r.products?.name} <Badge tone="warning" className="ml-1">Belum Diambil</Badge></p>
+                  <p className="font-medium">{r.products?.name || r.product_name || "(produk sudah dihapus)"} <Badge tone="warning" className="ml-1">Belum Diambil</Badge></p>
                   <p className="text-xs text-ink-muted">
                     {r.suppliers?.name ? `${r.suppliers.name} · ` : ""}{formatDateTime(r.created_at)} {r.reason ? `· ${r.reason}` : ""}
                   </p>
@@ -222,7 +227,7 @@ export default function ReturPage() {
             {historyReturns.map((r) => (
               <div key={r.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border last:border-0">
                 <div>
-                  <p className="font-medium">{r.products?.name} <Badge tone={r.return_type === "customer" ? "primary" : "warning"} className="ml-1">{r.return_type === "customer" ? "Dari Pelanggan" : "Ke Supplier"}</Badge></p>
+                  <p className="font-medium">{r.products?.name || r.product_name || "(produk sudah dihapus)"} <Badge tone={r.return_type === "customer" ? "primary" : "warning"} className="ml-1">{r.return_type === "customer" ? "Dari Pelanggan" : "Ke Supplier"}</Badge></p>
                   <p className="text-xs text-ink-muted">{formatDateTime(r.created_at)} {r.reason ? `· ${r.reason}` : ""}</p>
                 </div>
                 <div className="flex items-center gap-3">

@@ -11,6 +11,10 @@
     {
       "path": "/api/notify/daily-report",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cleanup-log/run",
+      "schedule": "0 3 * * *"
     }
   ]
 }

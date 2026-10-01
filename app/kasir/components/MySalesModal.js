@@ -2,12 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { formatRupiah, formatDateTime, txCode } from "@/lib/format";
 
 const PAYMENT_LABELS = { tunai: "Tunai", transfer: "Transfer", qris: "QRIS", kasbon: "Kasbon" };
 const PAYMENT_ORDER = ["tunai", "transfer", "qris", "kasbon"];
-const PAGE_SIZE = 1000; // batas baris per permintaan Supabase
-const MAX_PAGES = 10;
 
 // Tanggal lokal perangkat dalam format "YYYY-MM-DD" (untuk <input type="date">).
 function localDateValue(d = new Date()) {
@@ -63,15 +62,9 @@ export default function MySalesModal({ cashierId, cashierName, shift, onClose })
           }
           return q;
         };
-        // Diambil per halaman 1000 baris supaya total tetap benar walau
-        // transaksinya sangat banyak (Supabase membatasi 1000 baris/permintaan).
-        let all = [];
-        for (let page = 0; page < MAX_PAGES; page++) {
-          const { data, error: err } = await buildQuery().range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-          if (err) throw err;
-          all = all.concat(data || []);
-          if ((data || []).length < PAGE_SIZE) break;
-        }
+        // Diambil per halaman 1000 baris lewat fetchAllRows, tanpa batas jumlah
+        // halaman, jadi total tetap benar walau transaksinya sangat banyak.
+        const all = await fetchAllRows(buildQuery);
         if (myRequest === requestId.current) setRows(all);
       } catch (err) {
         if (myRequest === requestId.current) setError(err?.message || "Gagal memuat data penjualan");

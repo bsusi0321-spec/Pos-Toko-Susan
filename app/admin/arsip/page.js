@@ -135,6 +135,7 @@ export default function ArsipPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Tanggal Transaksi</th>
                   <th className="text-right py-2 pr-3 font-medium">Total</th>
                   <th className="text-left py-2 pr-3 font-medium">Metode</th>
@@ -142,8 +143,9 @@ export default function ArsipPage() {
                 </tr>
               </thead>
               <tbody>
-                {archived.map((t) => (
+                {archived.map((t, i) => (
                   <tr key={t.id} className="border-b border-border last:border-0">
+                    <td className="py-2 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2 pr-3">{formatDateTime(t.created_at)}</td>
                     <td className="py-2 pr-3 text-right">{formatRupiah(t.total)}</td>
                     <td className="py-2 pr-3 capitalize">{t.payment_method}</td>

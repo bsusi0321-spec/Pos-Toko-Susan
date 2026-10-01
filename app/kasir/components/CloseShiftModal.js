@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { formatRupiah, formatThousands, handleThousandsInputChange } from "@/lib/format";
 
 export default function CloseShiftModal({ shift, onClose, onClosed }) {
@@ -14,12 +15,20 @@ export default function CloseShiftModal({ shift, onClose, onClosed }) {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from("transactions")
-        .select("total, payment_method")
-        .eq("shift_id", shift.id)
-        .eq("status", "completed")
-        .eq("payment_method", "tunai");
+      let data = [];
+      try {
+        // Lewat fetchAllRows supaya penjualan tunai shift yang sangat ramai tidak kepotong 1000 baris.
+        data = await fetchAllRows(() =>
+          supabase
+            .from("transactions")
+            .select("total, payment_method")
+            .eq("shift_id", shift.id)
+            .eq("status", "completed")
+            .eq("payment_method", "tunai")
+        );
+      } catch (e) {
+        data = [];
+      }
       const sum = (data || []).reduce((s, t) => s + Number(t.total), 0);
       setCashSales(sum);
       setLoading(false);

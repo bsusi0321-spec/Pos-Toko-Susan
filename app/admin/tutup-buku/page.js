@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatDateTime } from "@/lib/format";
 import { Button, Card, StatCard, Textarea, EmptyState } from "@/components/ui/kit";
 import { useViewport } from "@/lib/useViewport";
+import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 function currentPeriodKey() {
   const d = new Date();
@@ -34,7 +35,11 @@ function periodRange(key) {
 
 export default function TutupBukuPage() {
   const supabase = createClient();
-  const { isMobile } = useViewport();
+  const { width } = useViewport();
+  // Di bawah 1280px lebar layar (HP, tablet, laptop kecil -- ditambah sidebar
+  // admin yang memakan ~240px) tabel 8 kolom terlalu sempit, jadi riwayat
+  // ditampilkan sebagai kartu yang menurun ke bawah.
+  const compact = width < 1280;
   const [periodKey, setPeriodKey] = useState(currentPeriodKey());
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState({ revenue: 0, grossProfit: 0, cashIn: 0, cashOut: 0 });
@@ -53,7 +58,7 @@ export default function TutupBukuPage() {
   }, [periodKey, history]);
 
   async function loadHistory() {
-    const { data } = await supabase.from("monthly_closings").select("*, profiles(full_name)").order("period_key", { ascending: false });
+    const data = await fetchAllRowsOrEmpty(() => supabase.from("monthly_closings").select("*, profiles(full_name)").order("period_key", { ascending: false }));
     setHistory(data || []);
   }
 
@@ -66,14 +71,23 @@ export default function TutupBukuPage() {
     const existing = history.find((h) => h.period_key === periodKey);
     setAlreadyClosed(existing || null);
 
-    const [{ data: tx }, { data: items }, { data: movements }] = await Promise.all([
-      supabase.from("transactions").select("id, total").eq("status", "completed").gte("created_at", startIso).lt("created_at", endIso),
-      supabase
-        .from("transaction_items")
-        .select("transaction_id, qty, subtotal, cost_price_snapshot")
-        .gte("created_at", startIso)
-        .lt("created_at", endIso),
-      supabase.from("cash_movements").select("type, amount").gte("movement_date", startIso).lt("movement_date", endIso),
+    // PENTING: transaction_items bisa lewat 1000 baris dalam sebulan kalau
+    // toko ramai -- Supabase membatasi maksimal 1000 baris per query secara
+    // default. Kalau ditarik cara biasa, sebagian transaksi tidak ikut
+    // terhitung, sehingga laba yang DIKUNCI PERMANEN di bulan itu jadi lebih
+    // kecil dari yang sebenarnya. Ditarik lewat fetchAllRows supaya laba yang
+    // dikunci adalah laba yang REAL, bukan yang kepotong.
+    const [tx, items, movements] = await Promise.all([
+      fetchAllRows(() => supabase.from("transactions").select("id, total").eq("status", "completed").gte("created_at", startIso).lt("created_at", endIso)),
+      fetchAllRows(() =>
+        supabase
+          .from("transaction_items")
+          .select("transaction_id, qty, subtotal, cost_price_snapshot")
+          .gte("created_at", startIso)
+          .lt("created_at", endIso)
+      ),
+      // Kas masuk/keluar juga wajib lengkap karena hasilnya ikut DIKUNCI permanen di tutup buku.
+      fetchAllRows(() => supabase.from("cash_movements").select("type, amount").gte("movement_date", startIso).lt("movement_date", endIso)),
     ]);
 
     const txIds = new Set((tx || []).map((t) => t.id));
@@ -157,7 +171,7 @@ export default function TutupBukuPage() {
           <p className="text-sm text-ink-muted">Menghitung...</p>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
               <StatCard label="Omset" value={formatRupiah(preview.revenue)} />
               <StatCard label="Estimasi Laba Kotor" value={formatRupiah(preview.grossProfit)} tone="primary" />
               <StatCard label="Kas Masuk (Toko)" value={formatRupiah(preview.cashIn)} />
@@ -200,11 +214,11 @@ export default function TutupBukuPage() {
       <Card title="Riwayat Tutup Buku">
         {history.length === 0 ? (
           <EmptyState text="Belum ada bulan yang ditutup." />
-        ) : isMobile ? (
-          // Versi HP: kolom-kolomnya dibikin menurun per baris (kartu),
+        ) : compact ? (
+          // Versi layar sempit: kolom-kolomnya dibikin menurun per baris (kartu),
           // bukan tabel ke samping -- tabel dengan banyak kolom angka kalau
           // dipaksa muat di layar sempit jadi meluber keluar kotak.
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {history.map((h) => (
               <div key={h.id} className="rounded-xl border border-border p-3 text-sm">
                 <div className="flex items-center justify-between mb-2">
@@ -246,6 +260,7 @@ export default function TutupBukuPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Periode</th>
                   <th className="text-right py-2 pr-3 font-medium">Omset</th>
                   <th className="text-right py-2 pr-3 font-medium">Laba Kotor</th>
@@ -257,8 +272,9 @@ export default function TutupBukuPage() {
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
+                {history.map((h, i) => (
                   <tr key={h.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3 font-medium">{periodLabel(h.period_key)}</td>
                     <td className="py-2.5 pr-3 text-right">{formatRupiah(h.gross_revenue)}</td>
                     <td className="py-2.5 pr-3 text-right">{formatRupiah(h.gross_profit)}</td>

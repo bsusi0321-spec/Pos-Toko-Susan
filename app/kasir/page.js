@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import KasirApp from "./KasirApp";
 
 export default async function KasirPage({ searchParams }) {
@@ -36,16 +37,10 @@ export default async function KasirPage({ searchParams }) {
     .limit(1)
     .maybeSingle();
 
-  const [{ data: products }, { data: customers }, { data: settings }, { data: pendingTx }, { data: branches }, { data: voiceDictionary }] =
+  const [customers, { data: settings }, { data: pendingTx }, { data: branches }, voiceDictionary, products] =
     await Promise.all([
-      supabase
-        .from("products")
-        .select(
-          "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes(*), product_branch_stock(*)"
-        )
-        .eq("active", true)
-        .order("name"),
-      supabase.from("customers").select("*").eq("active", true).order("name"),
+      // Pelanggan & kamus suara juga lewat fetchAllRows supaya tidak kepotong 1000 baris.
+      fetchAllRowsOrEmpty(() => supabase.from("customers").select("*").eq("active", true).order("name")),
       supabase.from("store_settings").select("*").eq("id", 1).single(),
       supabase
         .from("transactions")
@@ -54,7 +49,22 @@ export default async function KasirPage({ searchParams }) {
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
       supabase.from("branches").select("*").eq("active", true).order("created_at", { ascending: true }),
-      supabase.from("voice_dictionary").select("abbreviation, spoken_as"),
+      fetchAllRowsOrEmpty(() => supabase.from("voice_dictionary").select("abbreviation, spoken_as")),
+      // Ditarik lewat fetchAllRows (bukan query langsung) karena Supabase
+      // membatasi maksimal 1000 baris per query secara default. Kalau produk
+      // sudah lebih dari 1000 dan ditarik biasa, produk yang namanya jatuh
+      // di luar 1000 pertama (alfabetis) tidak akan pernah muncul di kasir --
+      // bukan cuma "hilang dari daftar admin", tapi kasir juga tidak akan
+      // menemukannya saat mau menjual barang itu.
+      fetchAllRows(() =>
+        supabase
+          .from("products")
+          .select(
+            "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes(*), product_branch_stock(*)"
+          )
+          .eq("active", true)
+          .order("name")
+      ),
     ]);
 
   // Cabang untuk sesi kasir ini: kalau akun ini sudah ditugaskan ke satu cabang

@@ -177,7 +177,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   const searchResults = useMemo(() => {
     // Kata kunci boleh diketik sebagian & urutannya bebas, mis. "kecap
     // banteng" tetap menemukan "Kecap Asin Banteng" — lihat lib/search.js.
-    return searchProducts(products, search, 8);
+    return searchProducts(products, search, 30);
   }, [search, products]);
 
   const taxInclusive = !!settings?.tax_price_inclusive;
@@ -538,7 +538,14 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   }
 
   function recallTransaction(tx) {
-    const items = (tx.transaction_items || []).map((it) => {
+    // Barang yang produknya sudah dihapus (product_id kosong) tidak bisa
+    // dijual lagi, jadi dilewati dan kasir diberi tahu.
+    const allItems = tx.transaction_items || [];
+    const deletedCount = allItems.filter((it) => !it.product_id).length;
+    if (deletedCount > 0) {
+      toast.error(`${deletedCount} barang di transaksi tertahan ini produknya sudah dihapus, jadi tidak dimasukkan ke keranjang.`, { duration: 6000 });
+    }
+    const items = allItems.filter((it) => it.product_id).map((it) => {
       const product = products.find((p) => p.id === it.product_id);
       return {
         key: `${it.product_id}-${it.price_type}-${Date.now()}-${Math.random()}`,
@@ -1252,6 +1259,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-surface border-b border-border text-xs text-ink-muted">
                 <tr>
+                  <th className="text-left px-4 py-2 font-medium w-10">No</th>
                   <th className="text-left px-4 py-2 font-medium">Barang</th>
                   <th className="text-left px-4 py-2 font-medium">Jenis</th>
                   <th className="text-right px-4 py-2 font-medium">Harga</th>
@@ -1273,6 +1281,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                       selectedIndex === index ? "bg-primary-soft" : "hover:bg-background"
                     } ${bumpIndex === index ? "cart-row-bump" : ""}`}
                   >
+                    <td className="px-4 py-2.5 text-ink-muted">{index + 1}</td>
                     <td className="px-4 py-2.5">{item.name}</td>
                     <td className="px-4 py-2.5 text-xs" onClick={(e) => e.stopPropagation()}>
                       <select
@@ -1323,7 +1332,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 ))}
                 {cart.length === 0 && (
                   <tr>
-                    <td colSpan={isTablet ? 6 : 5} className="text-center text-ink-muted py-16 text-sm">
+                    <td colSpan={isTablet ? 7 : 6} className="text-center text-ink-muted py-16 text-sm">
                       Keranjang kosong. Cari barang atau gunakan shortcut / scan barcode.
                     </td>
                   </tr>

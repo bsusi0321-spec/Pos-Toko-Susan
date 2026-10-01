@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { formatNumber } from "@/lib/format";
 
 function getServiceClient() {
@@ -28,10 +29,15 @@ async function runLowStockCheck(service, { isTest = false } = {}) {
     return { sent: false, message: "Bot Token / Chat ID Telegram belum diisi di Pengaturan" };
   }
 
-  const { data: rows } = await service
-    .from("product_branch_stock")
-    .select("product_id, stock_qty, min_stock, products(id, name, active, last_low_stock_notified_at), branches(name)")
-    .gt("min_stock", 0);
+  // Lewat fetchAllRows supaya barang ke-1001 dst. juga ikut dicek stok menipisnya.
+  const rows = await fetchAllRowsOrEmpty(
+    () =>
+      service
+        .from("product_branch_stock")
+        .select("product_id, stock_qty, min_stock, products(id, name, active, last_low_stock_notified_at), branches(name)")
+        .gt("min_stock", 0),
+    { orderBy: ["product_id", "branch_id"] }
+  );
 
   const now = Date.now();
   const due = (rows || []).filter((r) => {

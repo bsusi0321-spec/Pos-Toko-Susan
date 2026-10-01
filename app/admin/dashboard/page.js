@@ -8,6 +8,7 @@ import { formatRupiah, formatNumber, formatDateTime, formatDate } from "@/lib/fo
 import { exportToCsv } from "@/lib/exportCsv";
 import { StatCard, Card, EmptyState, Button, Input } from "@/components/ui/kit";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 function startOfDay(d) {
   const x = new Date(d);
@@ -115,17 +116,32 @@ export default function DashboardPage() {
     // cabang di dropdown (kosong = semua cabang digabung, seperti sebelumnya).
     const withBranch = (q) => (branchFilter ? q.eq("branch_id", branchFilter) : q);
 
-    const [{ data: tToday }, { data: tMonth }, { data: items }, { data: products }, { data: recentTx }, { data: trend }, { data: todayItems }, { data: pos }, { data: payments }, { data: pendingRet }, { count: productCount }, { count: pendingTxCnt }, { data: monthCashMovements }] =
+    const [tToday, tMonth, items, products, { data: recentTx }, trend, todayItems, pos, payments, pendingRet, { count: productCount }, { count: pendingTxCnt }, monthCashMovements] =
       await Promise.all([
-        withBranch(supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", today)),
-        withBranch(supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", monthStart)),
-        supabase
-          .from("transaction_items")
-          .select("transaction_id, product_id, qty, subtotal, cost_price_snapshot, products(name)")
-          .gte("created_at", monthStart),
-        (branchFilter
-          ? supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)").eq("branch_id", branchFilter)
-          : supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)")
+        // tToday & tMonth juga ditarik lewat fetchAllRows: kalau toko ramai,
+        // jumlah transaksi selesai dalam sebulan juga berisiko lewat 1000 baris.
+        fetchAllRows(() => withBranch(supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", today))),
+        fetchAllRows(() => withBranch(supabase.from("transactions").select("*").eq("status", "completed").gte("created_at", monthStart))),
+        // PENTING: tabel transaction_items bertambah beberapa baris SETIAP
+        // transaksi (satu baris per barang di keranjang). Toko yang ramai bisa
+        // gampang lewat 1000 baris dalam sebulan. Supabase membatasi maksimal
+        // 1000 baris per query secara default -- kalau ditarik cara biasa,
+        // begitu lewat 1000 baris, item-item BARU tidak ikut kehitung lagi,
+        // jadi "Laba Bulanan" berhenti bertambah walau transaksi terus masuk.
+        // Makanya di sini ditarik lewat fetchAllRows supaya tidak kepotong.
+        fetchAllRows(() =>
+          supabase
+            .from("transaction_items")
+            .select("transaction_id, product_id, product_name, qty, subtotal, cost_price_snapshot, products(name)")
+            .gte("created_at", monthStart)
+        ),
+        // Stok per cabang = jumlah produk x cabang, gampang lewat 1000 baris -> fetchAllRows.
+        fetchAllRowsOrEmpty(
+          () =>
+            branchFilter
+              ? supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)").eq("branch_id", branchFilter)
+              : supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)"),
+          { orderBy: ["product_id", "branch_id"] }
         ),
         withBranch(
           supabase
@@ -135,37 +151,51 @@ export default function DashboardPage() {
             .order("created_at", { ascending: false })
             .limit(8)
         ),
-        withBranch(
-          supabase
-            .from("transactions")
-            .select("created_at, total")
-            .eq("status", "completed")
-            .gte("created_at", sevenDaysAgo.toISOString())
+        fetchAllRows(() =>
+          withBranch(
+            supabase
+              .from("transactions")
+              .select("created_at, total")
+              .eq("status", "completed")
+              .gte("created_at", sevenDaysAgo.toISOString())
+          )
         ),
-        supabase
-          .from("transaction_items")
-          .select("transaction_id, qty, subtotal, cost_price_snapshot")
-          .gte("created_at", today),
-        withBranch(
+        // Sama seperti transaction_items bulan ini: ditarik lewat fetchAllRows
+        // supaya "Laba Bersih Hari Ini" juga tidak ikut kepotong di hari-hari
+        // toko sangat ramai.
+        fetchAllRows(() =>
           supabase
-            .from("purchase_orders")
-            .select("*, suppliers(name)")
-            .gt("remaining_debt", 0)
-            .order("created_at", { ascending: false })
+            .from("transaction_items")
+            .select("transaction_id, qty, subtotal, cost_price_snapshot")
+            .gte("created_at", today)
+        ),
+        fetchAllRowsOrEmpty(() =>
+          withBranch(
+            supabase
+              .from("purchase_orders")
+              .select("*, suppliers(name)")
+              .gt("remaining_debt", 0)
+              .order("created_at", { ascending: false })
+          )
         ),
         // supplier_payments tidak punya kolom branch_id sendiri -- cabangnya
         // ikut nota pembeliannya (purchase_orders), jadi difilter lewat join.
-        (branchFilter
-          ? supabase.from("supplier_payments").select("amount, method, purchase_orders!inner(branch_id)").eq("purchase_orders.branch_id", branchFilter)
-          : supabase.from("supplier_payments").select("amount, method")
+        // Ditarik lewat fetchAllRows karena tabel ini terus bertambah seumur
+        // hidup toko (tidak difilter tanggal), jadi lama-lama pasti lewat 1000 baris.
+        fetchAllRows(() =>
+          branchFilter
+            ? supabase.from("supplier_payments").select("amount, method, purchase_orders!inner(branch_id)").eq("purchase_orders.branch_id", branchFilter)
+            : supabase.from("supplier_payments").select("amount, method")
         ),
-        withBranch(
-          supabase
-            .from("returns")
-            .select("*, products(name), suppliers:reference_supplier_id(name)")
-            .eq("return_type", "supplier")
-            .eq("pickup_status", "belum_diambil")
-            .order("created_at", { ascending: false })
+        fetchAllRowsOrEmpty(() =>
+          withBranch(
+            supabase
+              .from("returns")
+              .select("*, products(name), suppliers:reference_supplier_id(name)")
+              .eq("return_type", "supplier")
+              .eq("pickup_status", "belum_diambil")
+              .order("created_at", { ascending: false })
+          )
         ),
         // count-only (head: true) supaya tidak perlu tarik seluruh baris produk cuma untuk dihitung
         supabase.from("products").select("id", { count: "exact", head: true }).eq("active", true),
@@ -177,7 +207,7 @@ export default function DashboardPage() {
         // ditampilkan sebagai INFORMASI di sini, TIDAK dipotong ke angka laba
         // manapun di Dashboard. Potongannya baru benar-benar dihitung & dikunci
         // manual oleh admin di menu "Tutup Buku Bulanan".
-        supabase.from("cash_movements").select("type, amount").gte("movement_date", monthStart),
+        fetchAllRowsOrEmpty(() => supabase.from("cash_movements").select("type, amount").gte("movement_date", monthStart)),
       ]);
 
     setTotalProducts(productCount || 0);
@@ -208,8 +238,9 @@ export default function DashboardPage() {
     (items || [])
       .filter((it) => monthTxIds.has(it.transaction_id))
       .forEach((it) => {
-        const key = it.product_id;
-        const prev = map.get(key) || { name: it.products?.name || "-", qty: 0, profit: 0, revenue: 0 };
+        // product_id bisa kosong kalau produknya sudah dihapus -> kelompokkan pakai nama tersimpan.
+        const key = it.product_id || `nama:${it.product_name || "-"}`;
+        const prev = map.get(key) || { name: it.products?.name || it.product_name || "(produk sudah dihapus)", qty: 0, profit: 0, revenue: 0 };
         prev.qty += Number(it.qty);
         prev.revenue += Number(it.subtotal);
         prev.profit += Number(it.subtotal) - Number(it.cost_price_snapshot) * Number(it.qty);
@@ -263,8 +294,12 @@ export default function DashboardPage() {
   async function handleExport() {
     setExporting(true);
     try {
-      const { data } = await (
-        branchFilter
+      // Sebelumnya cuma .limit(1000) dan tanpa filter tanggal sama sekali --
+      // jadi laporan yang di-export diam-diam cuma berisi 1000 transaksi
+      // TERBARU, transaksi lama di luar itu hilang dari file CSV-nya.
+      // Ditarik lewat fetchAllRows supaya laporannya benar-benar lengkap.
+      const data = await fetchAllRows(() =>
+        (branchFilter
           ? supabase
               .from("transactions")
               .select("created_at, total, subtotal, discount, delivery_fee, payment_method, status, profiles(full_name), customers(name)")
@@ -272,9 +307,8 @@ export default function DashboardPage() {
           : supabase
               .from("transactions")
               .select("created_at, total, subtotal, discount, delivery_fee, payment_method, status, profiles(full_name), customers(name)")
-      )
-        .order("created_at", { ascending: false })
-        .limit(1000);
+        ).order("created_at", { ascending: false })
+      );
       const rows = (data || []).map((t) => ({
         Tanggal: formatDateTime(t.created_at),
         Kasir: t.profiles?.full_name || "-",
@@ -302,20 +336,27 @@ export default function DashboardPage() {
       const rangeStart = new Date(`${historyStart}T00:00:00`).toISOString();
       const rangeEnd = new Date(`${historyEnd}T23:59:59.999`).toISOString();
 
-      const [{ data: txs }, { data: items }] = await Promise.all([
-        (branchFilter
-          ? supabase.from("transactions").select("*, profiles(full_name), customers(name)").eq("branch_id", branchFilter)
-          : supabase.from("transactions").select("*, profiles(full_name), customers(name)")
-        )
-          .eq("status", "completed")
-          .gte("created_at", rangeStart)
-          .lte("created_at", rangeEnd)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("transaction_items")
-          .select("transaction_id, product_id, qty, subtotal, cost_price_snapshot, products(name)")
-          .gte("created_at", rangeStart)
-          .lte("created_at", rangeEnd),
+      // Ditarik lewat fetchAllRows: rentang tanggal yang dipilih admin bisa
+      // saja mencakup banyak transaksi (misal sebulan penuh toko ramai),
+      // jadi berisiko kena batas 1000 baris juga kalau ditarik cara biasa.
+      const [txs, items] = await Promise.all([
+        fetchAllRows(() =>
+          (branchFilter
+            ? supabase.from("transactions").select("*, profiles(full_name), customers(name)").eq("branch_id", branchFilter)
+            : supabase.from("transactions").select("*, profiles(full_name), customers(name)")
+          )
+            .eq("status", "completed")
+            .gte("created_at", rangeStart)
+            .lte("created_at", rangeEnd)
+            .order("created_at", { ascending: false })
+        ),
+        fetchAllRows(() =>
+          supabase
+            .from("transaction_items")
+            .select("transaction_id, product_id, product_name, qty, subtotal, cost_price_snapshot, products(name)")
+            .gte("created_at", rangeStart)
+            .lte("created_at", rangeEnd)
+        ),
       ]);
 
       // Sama seperti di "Produk Terlaris" utama: item cuma dihitung kalau memang
@@ -327,8 +368,8 @@ export default function DashboardPage() {
       (items || [])
         .filter((it) => txIds.has(it.transaction_id))
         .forEach((it) => {
-          const key = it.product_id;
-          const prev = map.get(key) || { name: it.products?.name || "-", qty: 0, revenue: 0, profit: 0 };
+          const key = it.product_id || `nama:${it.product_name || "-"}`;
+          const prev = map.get(key) || { name: it.products?.name || it.product_name || "(produk sudah dihapus)", qty: 0, revenue: 0, profit: 0 };
           prev.qty += Number(it.qty);
           prev.revenue += Number(it.subtotal);
           prev.profit += Number(it.subtotal) - Number(it.cost_price_snapshot) * Number(it.qty);
@@ -595,6 +636,7 @@ export default function DashboardPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs text-ink-muted border-b border-border">
                   <tr>
+                    <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                     <th className="text-left py-2 pr-3 font-medium">Barang</th>
                     <th className="text-left py-2 pr-3 font-medium">Supplier</th>
                     <th className="text-right py-2 pr-3 font-medium">Jumlah</th>
@@ -603,9 +645,10 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingReturns.map((r) => (
+                  {pendingReturns.map((r, i) => (
                     <tr key={r.id} className="border-b border-border last:border-0">
-                      <td className="py-2 pr-3">{r.products?.name}</td>
+                      <td className="py-2 pr-3 text-ink-muted">{i + 1}</td>
+                      <td className="py-2 pr-3">{r.products?.name || r.product_name || "(produk sudah dihapus)"}</td>
                       <td className="py-2 pr-3">{r.suppliers?.name || "-"}</td>
                       <td className="py-2 pr-3 text-right">{formatNumber(r.qty, 2)}</td>
                       <td className="py-2 pr-3 text-ink-muted">{r.reason || "-"}</td>
@@ -633,6 +676,7 @@ export default function DashboardPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Supplier</th>
                   <th className="text-right py-2 pr-3 font-medium">Total Nota</th>
                   <th className="text-right py-2 pr-3 font-medium">Sisa Hutang</th>
@@ -640,8 +684,9 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {supplierDebt.outstanding.map((po) => (
+                {supplierDebt.outstanding.map((po, i) => (
                   <tr key={po.id} className="border-b border-border last:border-0">
+                    <td className="py-2 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2 pr-3">{po.suppliers?.name}</td>
                     <td className="py-2 pr-3 text-right">{formatRupiah(po.total)}</td>
                     <td className="py-2 pr-3 text-right text-danger font-medium">{formatRupiah(po.remaining_debt)}</td>

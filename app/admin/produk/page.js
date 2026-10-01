@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
@@ -12,6 +13,7 @@ import { useViewport } from "@/lib/useViewport";
 import { getBranchStock } from "@/lib/branchStock";
 import CameraScanButton from "@/components/CameraScanButton";
 import { matchesProductQuery } from "@/lib/search";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 
 const emptyForm = {
   id: null,
@@ -146,14 +148,21 @@ export default function ProdukPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase
-      .from("products")
-      .select(
-        "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes(*), product_branch_stock(*)"
-      )
-      .order("created_at", { ascending: false });
-    setProducts(data || []);
-    setLoading(false);
+    try {
+      const data = await fetchAllRows(() =>
+        supabase
+          .from("products")
+          .select(
+            "*, product_wholesale_pricing(*), product_kg_pricing(*), product_out_of_town_pricing(*), product_barcodes(*), product_branch_stock(*)"
+          )
+          .order("created_at", { ascending: false })
+      );
+      setProducts(data);
+    } catch (err) {
+      toast.error(err.message || "Gagal memuat data produk");
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Scan barcode global: kalau form sedang terbuka, isi kolom Barcode Utama.
@@ -335,29 +344,42 @@ export default function ProdukPage() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm("Hapus produk ini?")) return;
-    const { error } = await supabase.from("products").delete().eq("id", id);
+  // Hapus produk. Aturannya:
+  // - Produk yang MASIH AKTIF tidak langsung dihapus: ditawarkan dinonaktifkan
+  //   dulu (supaya tidak kehapus tidak sengaja). Setelah nonaktif, tombol Hapus
+  //   menghapus permanen.
+  // - Produk NONAKTIF dihapus permanen. Kalau sudah pernah ada transaksi,
+  //   transaksinya TIDAK dihapus: nama produknya sudah tersimpan di tiap baris
+  //   riwayat (migration-32), jadi struk & laporan lama tetap utuh.
+  async function handleDelete(p) {
+    if (p.active) {
+      if (confirm(`"${p.name}" masih AKTIF (tampil di kasir).\n\nNonaktifkan dulu? Setelah nonaktif, tekan tombol Hapus sekali lagi untuk menghapusnya permanen.`)) {
+        const { error: updErr } = await supabase.from("products").update({ active: false }).eq("id", p.id);
+        if (updErr) toast.error(updErr.message);
+        else {
+          toast.success("Produk dinonaktifkan. Tekan Hapus lagi untuk menghapus permanen.");
+          load();
+        }
+      }
+      return;
+    }
+
+    if (!confirm(`Hapus permanen "${p.name}"?\n\nProduk, stok, dan barcode-nya akan hilang dan tidak bisa dikembalikan. Riwayat transaksi yang sudah ada TIDAK ikut dihapus.`)) return;
+    const { data, error } = await supabase.from("products").delete().eq("id", p.id).select("id");
     if (error) {
       if (error.code === "23503") {
-        // FK ke transaction_items -- produk ini sudah pernah terjual,
-        // menghapusnya akan merusak riwayat transaksi lama. Tawarkan
-        // nonaktifkan saja supaya hilang dari kasir tanpa hapus data.
-        if (confirm("Produk ini sudah pernah terjual, jadi tidak bisa dihapus (riwayat transaksinya butuh data produk ini tetap ada).\n\nNonaktifkan produk ini saja supaya tidak muncul lagi di kasir?")) {
-          const { error: updErr } = await supabase.from("products").update({ active: false }).eq("id", id);
-          if (updErr) toast.error(updErr.message);
-          else {
-            toast.success("Produk dinonaktifkan (bukan dihapus)");
-            load();
-          }
-        }
+        toast.error("Belum bisa dihapus: jalankan dulu migration-32-hapus-produk-nonaktif.sql di Supabase SQL Editor (lihat PANDUAN-UPDATE-V33.md).", { duration: 8000 });
       } else {
         toast.error(error.message);
       }
-    } else {
-      toast.success("Produk dihapus");
-      load();
+      return;
     }
+    if (!data || data.length === 0) {
+      toast.error("Produk gagal dihapus (tidak ada izin atau sudah terhapus). Coba muat ulang halaman.");
+      return;
+    }
+    toast.success("Produk dihapus. Riwayat transaksinya tetap tersimpan.");
+    load();
   }
 
   // Kata kunci boleh diketik sebagian & urutannya bebas, mis. "kecap
@@ -395,6 +417,7 @@ export default function ProdukPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Nama</th>
                   <th className="text-left py-2 pr-3 font-medium">Tipe</th>
                   <th className="text-right py-2 pr-3 font-medium">Harga Jual</th>
@@ -404,10 +427,11 @@ export default function ProdukPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => {
+                {filtered.map((p, i) => {
                   const branchStock = getBranchStock(p, activeBranch);
                   return (
                   <tr key={p.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3">{p.name}</td>
                     <td className="py-2.5 pr-3 text-ink-muted">
                       {p.unit_label ? p.unit_label : (p.unit_type === "kg" ? "Timbangan" : "PCS")}
@@ -423,8 +447,9 @@ export default function ProdukPage() {
                       <Badge tone={p.active ? "primary" : "default"}>{p.active ? "Aktif" : "Nonaktif"}</Badge>
                     </td>
                     <td className="py-2.5 text-right space-x-2">
+                      <Link href={`/admin/riwayat-perubahan?produk=${p.id}`} className="inline-block rounded-lg px-3.5 py-2 text-sm font-medium text-ink-muted hover:bg-background hover:text-ink transition">Riwayat</Link>
                       <Button variant="ghost" onClick={() => openEdit(p)}>Edit</Button>
-                      <Button variant="danger" onClick={() => handleDelete(p.id)}>Hapus</Button>
+                      <Button variant="danger" onClick={() => handleDelete(p)}>Hapus</Button>
                     </td>
                   </tr>
                   );

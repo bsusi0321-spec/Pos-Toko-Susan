@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { formatRupiah, formatDate } from "@/lib/format";
 import { Button, Card, EmptyState, Badge, Modal, Input, PriceInput } from "@/components/ui/kit";
 
@@ -20,10 +21,12 @@ export default function KasbonPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase
-      .from("kasbon")
-      .select("*, customers(name, phone)")
-      .order("created_at", { ascending: false });
+    const data = await fetchAllRowsOrEmpty(() =>
+      supabase
+        .from("kasbon")
+        .select("*, customers(name, phone)")
+        .order("created_at", { ascending: false })
+    );
     setRows(data || []);
     setLoading(false);
   }
@@ -78,6 +81,7 @@ export default function KasbonPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Pelanggan</th>
                   <th className="text-right py-2 pr-3 font-medium">Total</th>
                   <th className="text-right py-2 pr-3 font-medium">Terbayar</th>
@@ -88,8 +92,9 @@ export default function KasbonPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {rows.map((r, i) => (
                   <tr key={r.id} className="border-b border-border last:border-0">
+                    <td className="py-2.5 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2.5 pr-3">
                       <p>{r.customers?.name}</p>
                       <p className="text-xs text-ink-muted">{r.customers?.phone}</p>

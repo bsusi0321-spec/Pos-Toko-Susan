@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { formatRupiah, formatNumber, formatDateTime, txCode } from "@/lib/format";
 import { Card, EmptyState, Badge, Modal, Input, Select, Button } from "@/components/ui/kit";
 
@@ -17,8 +18,6 @@ const PRICE_TYPE_LABELS = {
 
 const PAYMENT_LABELS = { tunai: "Tunai", transfer: "Transfer", qris: "QRIS", kasbon: "Kasbon" };
 const RECAP_METHODS = ["tunai", "transfer", "qris", "kasbon"];
-const RECAP_PAGE_SIZE = 1000; // batas baris per permintaan Supabase
-const RECAP_MAX_PAGES = 10; // maksimal 10.000 transaksi per rekap
 
 const STATUS_LABELS = { completed: "Selesai", pending: "Tertunda", void: "Dibatalkan" };
 const STATUS_TONE = { completed: "primary", pending: "warning", void: "danger" };
@@ -39,7 +38,6 @@ export default function CekTransaksiPage() {
   // Rekap jumlah transaksi & total penjualan PER KASIR (kartu "Rekap per Kasir").
   const [recapRows, setRecapRows] = useState([]);
   const [recapLoading, setRecapLoading] = useState(true);
-  const [recapTruncated, setRecapTruncated] = useState(false);
   const [cashierFilter, setCashierFilter] = useState(""); // id kasir, atau "none" = tanpa kasir
 
   const [detailTx, setDetailTx] = useState(null);
@@ -82,27 +80,17 @@ export default function CekTransaksiPage() {
           .from("transactions")
           .select("id, cashier_id, total, payment_method, profiles(full_name)")
           .eq("status", "completed")
-          .order("created_at", { ascending: false })
-          .order("id");
+          .order("created_at", { ascending: false });
         if (dateStart) q = q.gte("created_at", new Date(`${dateStart}T00:00:00`).toISOString());
         if (dateEnd) q = q.lte("created_at", new Date(`${dateEnd}T23:59:59.999`).toISOString());
         if (branchFilter) q = q.eq("branch_id", branchFilter);
         return q;
       };
-      let all = [];
-      let truncated = false;
-      for (let page = 0; page < RECAP_MAX_PAGES; page++) {
-        const { data: chunk, error } = await buildQuery().range(page * RECAP_PAGE_SIZE, page * RECAP_PAGE_SIZE + RECAP_PAGE_SIZE - 1);
-        if (error) throw error;
-        all = all.concat(chunk || []);
-        if ((chunk || []).length < RECAP_PAGE_SIZE) break;
-        if (page === RECAP_MAX_PAGES - 1) truncated = true;
-      }
+      // Lewat fetchAllRows: semua transaksi ikut terhitung, tanpa batas jumlah.
+      const all = await fetchAllRows(buildQuery);
       setRecapRows(all);
-      setRecapTruncated(truncated);
     } catch {
       setRecapRows([]);
-      setRecapTruncated(false);
     } finally {
       setRecapLoading(false);
     }
@@ -200,6 +188,7 @@ export default function CekTransaksiPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Kasir</th>
                   <th className="text-right py-2 pr-3 font-medium">Transaksi</th>
                   <th className="text-right py-2 pr-3 font-medium">Total Penjualan</th>
@@ -209,12 +198,13 @@ export default function CekTransaksiPage() {
                 </tr>
               </thead>
               <tbody>
-                {recapByCashier.map((c) => (
+                {recapByCashier.map((c, i) => (
                   <tr
                     key={c.key}
                     onClick={() => setCashierFilter(cashierFilter === c.key ? "" : c.key)}
                     className={`border-b border-border cursor-pointer hover:bg-background ${cashierFilter === c.key ? "bg-primary-soft" : ""}`}
                   >
+                    <td className="py-2 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2 pr-3 font-medium">{c.name}</td>
                     <td className="py-2 pr-3 text-right">{c.count}</td>
                     <td className="py-2 pr-3 text-right font-medium">{formatRupiah(c.total)}</td>
@@ -226,6 +216,7 @@ export default function CekTransaksiPage() {
                   </tr>
                 ))}
                 <tr className="font-semibold">
+                  <td className="py-2 pr-3"></td>
                   <td className="py-2 pr-3">Semua Kasir</td>
                   <td className="py-2 pr-3 text-right">{recapGrand.count}</td>
                   <td className="py-2 pr-3 text-right">{formatRupiah(recapGrand.total)}</td>
@@ -238,12 +229,6 @@ export default function CekTransaksiPage() {
               </tbody>
             </table>
           </div>
-        )}
-        {recapTruncated && (
-          <p className="text-xs text-danger mt-2">
-            Transaksi terlalu banyak: rekap hanya menghitung {RECAP_MAX_PAGES * RECAP_PAGE_SIZE} transaksi terbaru.
-            Persempit rentang tanggalnya supaya angkanya lengkap.
-          </p>
         )}
       </Card>
 
@@ -265,6 +250,7 @@ export default function CekTransaksiPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-ink-muted border-b border-border">
                 <tr>
+                  <th className="text-left py-2 pr-3 font-medium w-10">No</th>
                   <th className="text-left py-2 pr-3 font-medium">Kode Transaksi</th>
                   <th className="text-left py-2 pr-3 font-medium">Tanggal</th>
                   <th className="text-left py-2 pr-3 font-medium">Kasir</th>
@@ -275,12 +261,13 @@ export default function CekTransaksiPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((tx) => (
+                {filtered.map((tx, i) => (
                   <tr
                     key={tx.id}
                     onClick={() => openDetail(tx)}
                     className="border-b border-border last:border-0 cursor-pointer hover:bg-background"
                   >
+                    <td className="py-2 pr-3 text-ink-muted">{i + 1}</td>
                     <td className="py-2 pr-3 font-medium text-primary">{txCode(tx.id)}</td>
                     <td className="py-2 pr-3 text-ink-muted">{formatDateTime(tx.created_at)}</td>
                     <td className="py-2 pr-3">{tx.profiles?.full_name || "-"}</td>
@@ -312,7 +299,7 @@ export default function CekTransaksiPage() {
               {detailItems.map((it) => (
                 <div key={it.id} className="flex items-center justify-between text-sm border-b border-border pb-1.5">
                   <div>
-                    <p>{it.products?.name || "-"} <span className="text-xs text-ink-muted">({it.price_type_label || PRICE_TYPE_LABELS[it.price_type] || it.price_type})</span></p>
+                    <p>{it.products?.name || it.product_name || "(produk sudah dihapus)"} <span className="text-xs text-ink-muted">({it.price_type_label || PRICE_TYPE_LABELS[it.price_type] || it.price_type})</span></p>
                     <p className="text-xs text-ink-muted">{formatNumber(it.qty, 2)} x {formatRupiah(it.unit_price)}</p>
                   </div>
                   <p className="font-medium">{formatRupiah(it.subtotal)}</p>

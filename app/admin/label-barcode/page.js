@@ -11,6 +11,7 @@ import { findBarcodeConflict } from "@/lib/checkBarcodeOwner";
 import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
 import ProductSearchInput from "@/components/ProductSearchInput";
+import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 export default function LabelBarcodePage() {
   const supabase = createClient();
@@ -38,12 +39,17 @@ export default function LabelBarcodePage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: s }, { data: p }, { data: b }, { data: store }] = await Promise.all([
+    const [{ data: s }, b, { data: store }] = await Promise.all([
       supabase.from("label_settings").select("*").eq("id", 1).single(),
-      supabase.from("products").select("id, name, sell_price").eq("active", true).order("name"),
-      supabase.from("product_barcodes").select("*, products(name, sell_price)").order("created_at", { ascending: false }),
+      // Daftar barcode juga lewat fetchAllRows (bisa lebih dari 1000 kalau 1 produk punya banyak barcode).
+      fetchAllRowsOrEmpty(() => supabase.from("product_barcodes").select("*, products(name, sell_price)").order("created_at", { ascending: false })),
       supabase.from("store_settings").select("store_name").eq("id", 1).single(),
     ]);
+    // Ditarik terpisah lewat fetchAllRows supaya tidak kepotong batas 1000
+    // baris bawaan Supabase kalau produk sudah lebih dari 1000.
+    const p = await fetchAllRows(() =>
+      supabase.from("products").select("id, name, sell_price").eq("active", true).order("name")
+    );
     setSettings(s);
     setProducts(p || []);
     setBarcodes(b || []);

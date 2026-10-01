@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { formatRupiah } from "@/lib/format";
 
 function getServiceClient() {
@@ -20,11 +21,14 @@ async function buildDailyReportText(service, settings) {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const { data: txs } = await service
-    .from("transactions")
-    .select("total, tax_amount, payment_method")
-    .eq("status", "completed")
-    .gte("created_at", startOfDay.toISOString());
+  // Lewat fetchAllRows supaya hari yang sangat ramai (>1000 transaksi) tidak kepotong.
+  const txs = await fetchAllRowsOrEmpty(() =>
+    service
+      .from("transactions")
+      .select("total, tax_amount, payment_method")
+      .eq("status", "completed")
+      .gte("created_at", startOfDay.toISOString())
+  );
 
   const rows = txs || [];
   const totalOmzet = rows.reduce((s, t) => s + Number(t.total || 0), 0);

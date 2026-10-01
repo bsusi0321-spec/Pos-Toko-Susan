@@ -27,8 +27,11 @@ import {
   Building2,
   Volume2,
   Calculator,
+  ClipboardCheck,
+  History,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { useViewport } from "@/lib/useViewport";
 import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import toast from "react-hot-toast";
@@ -49,10 +52,12 @@ const NAV = [
   { href: "/admin/label-barcode", label: "Label & Barcode", icon: Tags },
   { href: "/admin/supplier", label: "Supplier", icon: Truck },
   { href: "/admin/pembelian", label: "Stok & Barang Masuk", icon: ShoppingCart },
+  { href: "/admin/stok-opname", label: "Stok Opname", icon: ClipboardCheck },
   { href: "/admin/transaksi", label: "Cek Transaksi Penjualan", icon: Receipt },
   { href: "/admin/pelanggan", label: "Pelanggan", icon: Users },
   { href: "/admin/cabang", label: "Cabang", icon: Building2 },
   { href: "/admin/log-aktivitas", label: "Log Aktivitas", icon: ScrollText },
+  { href: "/admin/riwayat-perubahan", label: "Riwayat Perubahan", icon: History },
   { href: "/admin/arsip", label: "Arsip Data", icon: Archive },
   { href: "/admin/pengguna", label: "Pengguna", icon: UserCog },
   { href: "/admin/pengaturan", label: "Pengaturan Toko", icon: Settings },
@@ -101,9 +106,16 @@ export default function AdminShell({ profile, settings, children }) {
 
   useEffect(() => {
     async function loadLowStock() {
-      const { data } = await supabase
-        .from("product_branch_stock")
-        .select("stock_qty, min_stock, products(name), branches(name)");
+      let data = [];
+      try {
+        // product_branch_stock = jumlah produk x jumlah cabang, gampang lewat 1000 baris.
+        data = await fetchAllRows(
+          () => supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)"),
+          { orderBy: ["product_id", "branch_id"] }
+        );
+      } catch (e) {
+        data = [];
+      }
       const low = (data || [])
         .filter((row) => Number(row.stock_qty) <= Number(row.min_stock) && Number(row.min_stock) > 0)
         .map((row) => ({ name: row.products?.name || "(barang)", branchName: row.branches?.name, stock_qty: row.stock_qty }));
