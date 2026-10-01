@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { formatRupiah, formatNumber } from "@/lib/format";
 import { BARCODE_EVENT } from "./ScannerProvider";
 
@@ -34,10 +35,19 @@ export default function GlobalScanToast() {
     async function findProduct(code) {
       const now = Date.now();
       if (!cacheRef.current || now - cacheTimeRef.current > 30000) {
-        const { data } = await getSupabase()
-          .from("products")
-          .select("id, name, sell_price, stock_qty, sku, product_barcodes(barcode)")
-          .eq("active", true);
+        // Lewat fetchAllRows supaya produk ke-1001 dst. juga ikut terbaca.
+        const supabaseClient = getSupabase();
+        let data = [];
+        try {
+          data = await fetchAllRows(() =>
+            supabaseClient
+              .from("products")
+              .select("id, name, sell_price, stock_qty, sku, product_barcodes(barcode)")
+              .eq("active", true)
+          );
+        } catch (e) {
+          data = [];
+        }
         cacheRef.current = data || [];
         cacheTimeRef.current = now;
       }

@@ -33,7 +33,7 @@ export default function ProductSearchInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  const results = useMemo(() => searchProducts(products, query, 8), [products, query]);
+  const results = useMemo(() => searchProducts(products, query, 30), [products, query]);
 
   return (
     <div className={`relative ${className}`}>
