@@ -180,7 +180,7 @@ export function EmptyState({ text }) {
   return <p className="text-center text-sm text-ink-muted py-12">{text}</p>;
 }
 
-export function Badge({ children, tone = "default" }) {
+export function Badge({ children, tone = "default", className = "" }) {
   const toneClass =
     tone === "danger"
       ? "bg-danger-soft text-danger"
@@ -189,5 +189,5 @@ export function Badge({ children, tone = "default" }) {
       : tone === "primary"
       ? "bg-primary-soft text-primary"
       : "bg-background text-ink-muted";
-  return <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${toneClass}`}>{children}</span>;
+  return <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${toneClass} ${className}`}>{children}</span>;
 }
