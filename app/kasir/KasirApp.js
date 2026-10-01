@@ -748,7 +748,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             created_by: profile.id,
           });
           if (moveErr) console.error("Gagal mencatat pergerakan stok:", moveErr);
-          return { ok: true, product, newStock, minStock };
+          return { ok: true, product, newStock, minStock, moveFailed: !!moveErr };
         })
       );
       for (const r of stockResults) {
@@ -769,6 +769,13 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           `Transaksi tersimpan, TAPI stok barang berikut GAGAL diperbarui otomatis: ${stockErrors.join(", ")}. Cek & sesuaikan manual di halaman Produk & Harga.`,
           { duration: 8000 }
         );
+      }
+
+      // Stok sudah berkurang, tapi catatan Kartu Stok-nya gagal dibuat: beri tahu,
+      // jangan diam saja (kartu stok produk itu akan kurang satu baris penjualan).
+      const moveFailedNames = stockResults.filter((r) => r.ok && r.moveFailed).map((r) => r.product?.name || "barang");
+      if (moveFailedNames.length > 0) {
+        toast.error(`Transaksi & stok tersimpan, tapi catatan Kartu Stok gagal dibuat untuk: ${moveFailedNames.join(", ")}`, { duration: 8000 });
       }
 
       // Notifikasi stok menipis dikirim di background (tidak menunggu/menghambat

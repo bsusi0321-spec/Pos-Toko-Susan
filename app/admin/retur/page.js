@@ -11,7 +11,6 @@ import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
 import ProductSearchInput from "@/components/ProductSearchInput";
 import { findProductByCode } from "@/lib/barcode";
-import { getBranchStock } from "@/lib/branchStock";
 import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 export default function ReturPage() {
@@ -97,11 +96,11 @@ export default function ReturPage() {
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
-      const product = products.find((p) => p.id === form.product_id);
       const qty = Number(form.qty);
+      if (!(qty > 0)) throw new Error("Jumlah retur harus lebih dari 0");
       const branchId = form.branch_id || branches[0]?.id || null;
 
-      await supabase.from("returns").insert({
+      const { error: retErr } = await supabase.from("returns").insert({
         return_type: tab,
         product_id: form.product_id,
         branch_id: branchId,
@@ -114,16 +113,20 @@ export default function ReturPage() {
         picked_up_at: tab === "customer" ? new Date().toISOString() : null,
         created_by: userData?.user?.id,
       });
+      if (retErr) throw retErr;
 
-      // retur dari pelanggan -> stok kembali bertambah; retur ke supplier -> stok berkurang
+      // retur dari pelanggan -> stok kembali bertambah; retur ke supplier -> stok berkurang.
+      // Lewat fungsi database adjust_branch_stock (atomik), BUKAN baca stok dari layar lalu
+      // timpa: cara lama bisa menghapus penjualan kasir yang terjadi sesudah halaman dimuat,
+      // dan membulatkan stok ke 0 (menyembunyikan selisih; stok minus memang diizinkan sejak migration-21).
       const stockDelta = tab === "customer" ? qty : -qty;
-      const branchStock = getBranchStock(product, branchId);
-      const newStock = Math.max(0, branchStock.stock_qty + stockDelta);
-      await supabase.from("product_branch_stock").upsert(
-        { product_id: form.product_id, branch_id: branchId, stock_qty: newStock, min_stock: branchStock.min_stock },
-        { onConflict: "product_id,branch_id" }
-      );
-      await supabase.from("stock_movements").insert({
+      const { error: stockErr } = await supabase.rpc("adjust_branch_stock", {
+        p_product_id: form.product_id,
+        p_branch_id: branchId,
+        p_delta: stockDelta,
+      });
+      if (stockErr) throw new Error(`Retur tercatat, tetapi stok GAGAL diperbarui: ${stockErr.message}. Sesuaikan stok manual di Produk & Harga.`);
+      const { error: moveErr } = await supabase.from("stock_movements").insert({
         product_id: form.product_id,
         branch_id: branchId,
         movement_type: "retur",
@@ -131,6 +134,7 @@ export default function ReturPage() {
         note: `Retur ${tab === "customer" ? "dari pelanggan" : "ke supplier"}: ${form.reason || "-"}`,
         created_by: userData?.user?.id,
       });
+      if (moveErr) toast.error("Stok sudah berubah, tapi catatan Kartu Stok gagal dibuat: " + moveErr.message);
 
       await logActivity(supabase, { userId: userData?.user?.id, action: "return_item", entity: "returns", details: { type: tab, qty } });
       toast.success("Retur dicatat");

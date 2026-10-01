@@ -11,7 +11,6 @@ import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
 import ProductSearchInput from "@/components/ProductSearchInput";
 import { findProductByCode } from "@/lib/barcode";
-import { getBranchStock } from "@/lib/branchStock";
 import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 
 // Susunan kolom tingkatan harga per tipe produk, lengkap dengan modal & harga jual
@@ -272,15 +271,46 @@ export default function PembelianPage() {
   async function markReceived(order) {
     setSaving(true);
     try {
+      // Cek status TERBARU di database: kalau nota ini sudah diterima dari tab/komputer
+      // lain, jangan tambah stok dua kali.
+      const { data: freshOrder } = await supabase.from("purchase_orders").select("status").eq("id", order.id).maybeSingle();
+      if (!freshOrder) throw new Error("Nota pembelian tidak ditemukan di database");
+      if (freshOrder.status === "diterima") {
+        toast.error("Nota ini sudah pernah diterima. Stok tidak ditambah lagi.");
+        setReceiveOrder(null);
+        load();
+        return;
+      }
+
       const { data: userData } = await supabase.auth.getUser();
       const branchId = order.branch_id || branches[0]?.id || null;
+
+      // Siapkan SEMUA produk dulu sebelum mengubah apa pun. Daftar `products` di
+      // halaman ini hanya berisi produk AKTIF, jadi barang yang dinonaktifkan sejak
+      // nota dibuat dulu dilewati diam-diam padahal nota tetap ditandai "diterima"
+      // (stok tidak bertambah, tanpa pemberitahuan). Sekarang diambil langsung dari
+      // database, dan kalau benar-benar tidak ada, proses dihentikan dengan pesan jelas.
+      const resolved = [];
       for (const item of order.purchase_order_items) {
-        const product = products.find((p) => p.id === item.product_id);
-        if (!product) continue;
+        let product = products.find((p) => p.id === item.product_id);
+        if (!product && item.product_id) {
+          const { data } = await supabase
+            .from("products")
+            .select("id, name, unit_type, cost_price, sell_price, sku, product_barcodes(barcode), product_wholesale_pricing(*), product_kg_pricing(*), product_branch_stock(*)")
+            .eq("id", item.product_id)
+            .maybeSingle();
+          product = data || null;
+        }
+        if (!product) {
+          throw new Error(`Barang "${item.product_name || item.products?.name || "tanpa nama"}" di nota ini sudah tidak ada di database, jadi nota tidak diterima otomatis. Cek manual.`);
+        }
+        resolved.push({ item, product });
+      }
+
+      const moveFailed = [];
+      for (const { item, product } of resolved) {
         const tier = tiersForProduct(product).find((t) => t.price_type === item.price_type);
         const stockIncrement = Number(item.qty) * (tier?.stockFactor || 1);
-        const branchStock = getBranchStock(product, branchId);
-        const newStock = branchStock.stock_qty + stockIncrement;
 
         const productPatch = {};
         const w = product.product_wholesale_pricing?.[0] || product.product_wholesale_pricing || {};
@@ -327,11 +357,16 @@ export default function PembelianPage() {
         if (Object.keys(productPatch).length > 0) {
           await supabase.from("products").update(productPatch).eq("id", item.product_id);
         }
-        await supabase.from("product_branch_stock").upsert(
-          { product_id: item.product_id, branch_id: branchId, stock_qty: newStock, min_stock: branchStock.min_stock },
-          { onConflict: "product_id,branch_id" }
-        );
-        await supabase.from("stock_movements").insert({
+        // Tambah stok lewat fungsi database (atomik) -- BUKAN baca stok dari layar lalu
+        // timpa. Cara lama menghapus penjualan kasir yang terjadi antara halaman ini
+        // dimuat dan tombol Terima ditekan.
+        const { error: stockErr } = await supabase.rpc("adjust_branch_stock", {
+          p_product_id: item.product_id,
+          p_branch_id: branchId,
+          p_delta: stockIncrement,
+        });
+        if (stockErr) throw new Error(`Stok "${product.name}" gagal ditambah: ${stockErr.message}`);
+        const { error: moveErr } = await supabase.from("stock_movements").insert({
           product_id: item.product_id,
           branch_id: branchId,
           movement_type: "pembelian",
@@ -341,8 +376,13 @@ export default function PembelianPage() {
           note: `Pembelian PO ${order.id.slice(0, 8)} (${item.price_type})`,
           created_by: userData?.user?.id,
         });
+        if (moveErr) moveFailed.push(product.name);
       }
-      await supabase.from("purchase_orders").update({ status: "diterima", received_at: new Date().toISOString() }).eq("id", order.id);
+      const { error: statusErr } = await supabase.from("purchase_orders").update({ status: "diterima", received_at: new Date().toISOString() }).eq("id", order.id);
+      if (statusErr) throw statusErr;
+      if (moveFailed.length > 0) {
+        toast.error(`Stok sudah bertambah, tapi catatan Kartu Stok gagal dibuat untuk: ${moveFailed.join(", ")}`, { duration: 8000 });
+      }
       await logActivity(supabase, { userId: userData?.user?.id, action: "receive_purchase_order", entity: "purchase_orders", entityId: order.id });
       toast.success("Barang diterima, stok & harga diperbarui");
       setReceiveOrder(null);

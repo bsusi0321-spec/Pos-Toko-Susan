@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
 import { Button, Card, Input, PriceInput, Modal, Select, Toggle, EmptyState, Badge } from "@/components/ui/kit";
-import { Trash2 } from "lucide-react";
+import { Trash2, ScrollText } from "lucide-react";
 import { useBarcodeScan } from "@/lib/useBarcodeScan";
 import { findBarcodeConflict } from "@/lib/checkBarcodeOwner";
 import { useViewport } from "@/lib/useViewport";
@@ -14,6 +14,9 @@ import { getBranchStock } from "@/lib/branchStock";
 import CameraScanButton from "@/components/CameraScanButton";
 import { matchesProductQuery } from "@/lib/search";
 import { fetchAllRows } from "@/lib/fetchAllRows";
+
+// Stok disimpan numeric(14,3): bulatkan 3 desimal supaya selisih pecahan tidak berekor aneh.
+const r3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 
 const emptyForm = {
   id: null,
@@ -51,6 +54,10 @@ export default function ProdukPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  // Stok cabang aktif SAAT form Edit dibuka (diambil segar dari database).
+  // Dipakai untuk menghitung SELISIH yang diketik admin, bukan menimpa stok
+  // dengan angka lama -- lihat saveBranchStock().
+  const [origStock, setOrigStock] = useState(0);
   const [search, setSearch] = useState("");
   const [branches, setBranches] = useState([]);
   const [activeBranch, setActiveBranch] = useState("");
@@ -177,22 +184,37 @@ export default function ProdukPage() {
   });
 
   function startAddPcs() {
+    setOrigStock(0);
     setForm({ ...emptyForm, unit_type: "unit" });
     setTypeChoiceOpen(false);
     setModalOpen(true);
   }
 
   function startAddTimbang() {
+    setOrigStock(0);
     setForm({ ...emptyForm, unit_type: "kg" });
     setTypeChoiceOpen(false);
     setModalOpen(true);
   }
 
-  function openEdit(p) {
+  async function openEdit(p) {
     const w = p.product_wholesale_pricing?.[0] || p.product_wholesale_pricing || {};
     const k = p.product_kg_pricing?.[0] || p.product_kg_pricing || {};
     const oot = p.product_out_of_town_pricing?.[0] || p.product_out_of_town_pricing || {};
-    const branchStock = getBranchStock(p, activeBranch);
+    // Stok diambil SEGAR dari database (bukan dari daftar yang dimuat berjam-jam
+    // lalu): kalau kasir sudah menjual barang ini sejak halaman dibuka, angka di
+    // form harus angka yang sebenarnya sekarang.
+    let branchStock = getBranchStock(p, activeBranch);
+    if (activeBranch) {
+      const { data: fresh } = await supabase
+        .from("product_branch_stock")
+        .select("stock_qty, min_stock")
+        .eq("product_id", p.id)
+        .eq("branch_id", activeBranch)
+        .maybeSingle();
+      if (fresh) branchStock = { stock_qty: Number(fresh.stock_qty || 0), min_stock: Number(fresh.min_stock || 0) };
+    }
+    setOrigStock(r3(branchStock.stock_qty));
     setForm({
       id: p.id,
       name: p.name,
@@ -221,6 +243,44 @@ export default function ProdukPage() {
       out_of_town_label: oot.label || "Antar Luar Kota",
     });
     setModalOpen(true);
+  }
+
+  // Menyimpan stok minimum + (kalau diubah) stok cabang aktif, dan mencatat
+  // perubahan stok manual ke Kartu Stok (stock_movements).
+  async function saveBranchStock(productId, isNew) {
+    const newStock = r3(form.stock_qty);
+    const minStock = Number(form.min_stock) || 0;
+    const delta = r3(newStock - (isNew ? 0 : origStock));
+
+    const payload = { product_id: productId, branch_id: activeBranch, min_stock: minStock };
+    if (delta !== 0) {
+      // Dasarnya stok database DETIK INI (bukan angka lama di layar) + selisih.
+      const { data: cur } = await supabase
+        .from("product_branch_stock")
+        .select("stock_qty")
+        .eq("product_id", productId)
+        .eq("branch_id", activeBranch)
+        .maybeSingle();
+      payload.stock_qty = r3(Number(cur?.stock_qty || 0) + delta);
+    }
+    const { error } = await supabase.from("product_branch_stock").upsert(payload, { onConflict: "product_id,branch_id" });
+    if (error) throw error;
+
+    if (delta !== 0) {
+      const { data: userData } = await supabase.auth.getUser();
+      const { error: moveErr } = await supabase.from("stock_movements").insert({
+        product_id: productId,
+        branch_id: activeBranch,
+        movement_type: isNew ? "masuk" : "koreksi",
+        qty: delta,
+        note: isNew ? "Stok awal produk baru" : `Edit manual stok: dari ${origStock} menjadi ${newStock}`,
+        created_by: userData?.user?.id || null,
+      });
+      if (moveErr) {
+        console.error("Gagal mencatat kartu stok:", moveErr);
+        toast.error("Stok tersimpan, tapi catatan Kartu Stok gagal dibuat: " + moveErr.message);
+      }
+    }
   }
 
   async function handleSave() {
@@ -285,32 +345,42 @@ export default function ProdukPage() {
 
       // Stok disimpan PER CABANG (product_branch_stock), bukan lagi di tabel
       // products — supaya cabang lain tidak ikut berubah stoknya.
+      //
+      // PENTING: stok HANYA ditulis kalau angkanya memang diubah admin, dan yang
+      // ditulis adalah SELISIH-nya di atas stok database saat ini. Dulu angka di
+      // form selalu menimpa stok -- jadi mengubah harga/nama produk di form yang
+      // dibuka sebelum ada penjualan akan MENGEMBALIKAN stok ke angka lama dan
+      // menghapus pengurangan dari penjualan kasir.
       if (activeBranch) {
-        await supabase.from("product_branch_stock").upsert(
-          {
-            product_id: productId,
-            branch_id: activeBranch,
-            stock_qty: Number(form.stock_qty) || 0,
-            min_stock: Number(form.min_stock) || 0,
-          },
-          { onConflict: "product_id,branch_id" }
-        );
+        try {
+          await saveBranchStock(productId, !form.id);
+        } catch (stockErr) {
+          toast.error(`Produk tersimpan, TAPI stok gagal diperbarui: ${stockErr.message}`, { duration: 8000 });
+        }
       }
 
-      if (form.unit_type === "unit" && (form.wholesale_qty || form.half_wholesale_qty)) {
-        await supabase.from("product_wholesale_pricing").upsert({
-          product_id: productId,
-          wholesale_qty: Number(form.wholesale_qty) || null,
-          wholesale_price: Number(form.wholesale_price) || null,
-          wholesale_cost_price: Number(form.wholesale_cost_price) || null,
-          half_wholesale_qty: Number(form.half_wholesale_qty) || null,
-          half_wholesale_price: Number(form.half_wholesale_price) || null,
-          half_wholesale_cost_price: Number(form.half_wholesale_cost_price) || null,
-        });
+      if (form.unit_type === "unit") {
+        if (form.wholesale_qty || form.half_wholesale_qty) {
+          const { error: wErr } = await supabase.from("product_wholesale_pricing").upsert({
+            product_id: productId,
+            wholesale_qty: Number(form.wholesale_qty) || null,
+            wholesale_price: Number(form.wholesale_price) || null,
+            wholesale_cost_price: Number(form.wholesale_cost_price) || null,
+            half_wholesale_qty: Number(form.half_wholesale_qty) || null,
+            half_wholesale_price: Number(form.half_wholesale_price) || null,
+            half_wholesale_cost_price: Number(form.half_wholesale_cost_price) || null,
+          });
+          if (wErr) throw wErr;
+        } else if (form.id) {
+          // Kolom grosir & setengah grosir dikosongkan lagi di form -- baris lama
+          // ikut dihapus, kalau tidak harga grosir lama tetap "nyangkut" di kasir.
+          const { error: wDelErr } = await supabase.from("product_wholesale_pricing").delete().eq("product_id", productId);
+          if (wDelErr) throw wDelErr;
+        }
       }
 
       if (form.unit_type === "kg") {
-        await supabase.from("product_kg_pricing").upsert({
+        const { error: kErr } = await supabase.from("product_kg_pricing").upsert({
           product_id: productId,
           price_per_kg: Number(form.price_per_kg) || null,
           cost_per_kg: Number(form.cost_per_kg) || null,
@@ -319,6 +389,7 @@ export default function ProdukPage() {
           price_per_ons: Number(form.price_per_ons) || null,
           cost_per_ons: Number(form.cost_per_ons) || null,
         });
+        if (kErr) throw kErr;
       }
 
       if (form.out_of_town_price) {
@@ -446,7 +517,15 @@ export default function ProdukPage() {
                     <td className="py-2.5 pr-3">
                       <Badge tone={p.active ? "primary" : "default"}>{p.active ? "Aktif" : "Nonaktif"}</Badge>
                     </td>
-                    <td className="py-2.5 text-right space-x-2">
+                    <td className="py-2.5 text-right space-x-2 whitespace-nowrap">
+                      <Link
+                        href={`/admin/kartu-stok?produk=${p.id}${activeBranch ? `&cabang=${activeBranch}` : ""}`}
+                        title="Kartu Stok: riwayat barang masuk & keluar beserta struk/nota-nya"
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-primary hover:bg-primary-soft transition"
+                      >
+                        <ScrollText size={15} />
+                        <span className="hidden md:inline">Kartu Stok</span>
+                      </Link>
                       <Link href={`/admin/riwayat-perubahan?produk=${p.id}`} className="inline-block rounded-lg px-3.5 py-2 text-sm font-medium text-ink-muted hover:bg-background hover:text-ink transition">Riwayat</Link>
                       <Button variant="ghost" onClick={() => openEdit(p)}>Edit</Button>
                       <Button variant="danger" onClick={() => handleDelete(p)}>Hapus</Button>
