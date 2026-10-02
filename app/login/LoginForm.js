@@ -229,7 +229,7 @@ export default function LoginForm({ settings }) {
       }
 
       toast.success(`Selamat datang, ${profile.full_name}`);
-      router.push(profile.role === "admin" ? "/admin/dashboard" : "/kasir");
+      router.push(profile.role === "admin" ? "/admin" : "/kasir");
       router.refresh();
     } catch (err) {
       toast.error(err.message || "Username atau password salah.");

@@ -3,33 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  LayoutDashboard,
-  Wallet,
-  Undo2,
-  Clock,
-  Package,
-  Tags,
-  Truck,
-  ShoppingCart,
-  Users,
-  ScrollText,
-  UserCog,
-  Archive,
-  ShoppingBag,
-  Settings,
-  Keyboard,
-  LogOut,
-  Bell,
-  Moon,
-  Sun,
-  Receipt,
-  Building2,
-  Volume2,
-  Calculator,
-  ClipboardCheck,
-  History,
-} from "lucide-react";
+import { LogOut, Bell, Moon, Sun, House } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { useViewport } from "@/lib/useViewport";
@@ -37,31 +11,8 @@ import ScannerStatusWidget from "@/components/ScannerStatusWidget";
 import toast from "react-hot-toast";
 import { formatRupiah } from "@/lib/format";
 import { getSavedTheme, saveTheme, applyTheme } from "@/lib/theme";
-import { Menu, X } from "lucide-react";
+import { ADMIN_MENU_ITEMS as NAV } from "@/lib/adminMenu";
 
-const NAV = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/kasir", label: "Buka Kasir", icon: ShoppingBag },
-  { href: "/admin/kasir-shortcut", label: "Shortcut Kasir", icon: Keyboard },
-  { href: "/admin/kamus-suara", label: "Kamus Suara", icon: Volume2 },
-  { href: "/admin/kasbon", label: "Kasbon Pelanggan", icon: Wallet },
-  { href: "/admin/retur", label: "Retur Barang", icon: Undo2 },
-  { href: "/admin/shift-kas", label: "Shift & Kas", icon: Clock },
-  { href: "/admin/tutup-buku", label: "Tutup Buku Bulanan", icon: Calculator },
-  { href: "/admin/produk", label: "Produk & Harga", icon: Package },
-  { href: "/admin/label-barcode", label: "Label & Barcode", icon: Tags },
-  { href: "/admin/supplier", label: "Supplier", icon: Truck },
-  { href: "/admin/pembelian", label: "Stok & Barang Masuk", icon: ShoppingCart },
-  { href: "/admin/stok-opname", label: "Stok Opname", icon: ClipboardCheck },
-  { href: "/admin/transaksi", label: "Cek Transaksi Penjualan", icon: Receipt },
-  { href: "/admin/pelanggan", label: "Pelanggan", icon: Users },
-  { href: "/admin/cabang", label: "Cabang", icon: Building2 },
-  { href: "/admin/log-aktivitas", label: "Log Aktivitas", icon: ScrollText },
-  { href: "/admin/riwayat-perubahan", label: "Riwayat Perubahan", icon: History },
-  { href: "/admin/arsip", label: "Arsip Data", icon: Archive },
-  { href: "/admin/pengguna", label: "Pengguna", icon: UserCog },
-  { href: "/admin/pengaturan", label: "Pengaturan Toko", icon: Settings },
-];
 
 export default function AdminShell({ profile, settings, children }) {
   const pathname = usePathname();
@@ -73,16 +24,12 @@ export default function AdminShell({ profile, settings, children }) {
   const [lowStockCount, setLowStockCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [lowStockItems, setLowStockItems] = useState([]);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  // Sidebar mengecil (ikon saja) di tablet supaya halaman kerja lebih lega;
-  // di HP sidebar disembunyikan jadi menu geser (drawer) lewat tombol hamburger.
+  // Sidebar mengecil (ikon saja) di tablet supaya halaman kerja lebih lega.
+  // Di HP tidak ada sidebar/hamburger: semua menu ada di layar "Menu Utama"
+  // (/admin, kisi ikon besar); tombol "Menu" di header membawa kembali ke sana.
   const sidebarWidth = isTablet ? "w-16" : "w-60";
   const showLabels = !isTablet;
-
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [pathname]);
 
   // Pilihan tema disimpan per perangkat (lib/theme.js). Kalau belum pernah
   // memilih, pakai default dari Pengaturan Toko. "themeReady" mencegah tema
@@ -170,6 +117,16 @@ export default function AdminShell({ profile, settings, children }) {
             )}
           </div>
           <nav className="flex-1 overflow-auto p-2 space-y-0.5">
+            <Link
+              href="/admin"
+              title="Menu Utama"
+              className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${!showLabels ? "justify-center px-0" : ""} ${
+                pathname === "/admin" ? "bg-primary-soft text-primary font-medium" : "text-ink-muted hover:bg-background hover:text-ink"
+              }`}
+            >
+              <House size={16} />
+              {showLabels && "Menu Utama"}
+            </Link>
             {NAV.map((item) => {
               const Icon = item.icon;
               const active = pathname === item.href;
@@ -200,54 +157,16 @@ export default function AdminShell({ profile, settings, children }) {
         </aside>
       )}
 
-      {/* Drawer menu untuk HP: sidebar penuh muncul dari kiri lewat tombol hamburger di header */}
-      {isMobile && mobileNavOpen && (
-        <div className="fixed inset-0 z-40 flex">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileNavOpen(false)} />
-          <aside className="relative w-64 max-w-[80vw] h-full bg-surface border-r border-border flex flex-col">
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold truncate">{settings?.store_name || "Toko Saya"}</p>
-                <p className="text-xs text-ink-muted">Panel Admin</p>
-              </div>
-              <button onClick={() => setMobileNavOpen(false)} className="p-1.5 rounded-lg hover:bg-background">
-                <X size={18} />
-              </button>
-            </div>
-            <nav className="flex-1 overflow-auto p-2 space-y-0.5">
-              {NAV.map((item) => {
-                const Icon = item.icon;
-                const active = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${
-                      active ? "bg-primary-soft text-primary font-medium" : "text-ink-muted hover:bg-background hover:text-ink"
-                    }`}
-                  >
-                    <Icon size={16} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-            <div className="p-3 border-t border-border">
-              <button onClick={handleLogout} className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-danger hover:bg-danger-soft">
-                <LogOut size={16} /> Keluar
-              </button>
-            </div>
-          </aside>
-        </div>
-      )}
-
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-14 shrink-0 border-b border-border bg-surface flex items-center justify-end gap-2 px-3 sm:px-5 sticky top-0 z-30">
-          {isMobile && (
-            <button onClick={() => setMobileNavOpen(true)} className="mr-auto p-2 rounded-lg hover:bg-background">
-              <Menu size={20} />
-            </button>
-          )}
+          {isMobile &&
+            (pathname === "/admin" ? (
+              <p className="mr-auto pl-1 text-sm font-semibold truncate">{settings?.store_name || "Toko Saya"}</p>
+            ) : (
+              <Link href="/admin" className="mr-auto flex items-center gap-1.5 px-2.5 py-2 rounded-lg hover:bg-background text-sm font-medium">
+                <House size={18} /> Menu
+              </Link>
+            ))}
           <ScannerStatusWidget />
           <div className="relative">
             <button
