@@ -1,6 +1,7 @@
 "use client";
 
 import { formatThousands, handleThousandsInputChange } from "@/lib/format";
+import DecimalInput from "@/components/ui/DecimalInput";
 
 export function Card({ title, action, children, className = "" }) {
   return (
@@ -95,7 +96,10 @@ export function Textarea({ label, hint, className = "", alignRow = false, ...pro
 // <Input> biasa) tetap angka mentah tanpa titik -- jadi kode pemanggil yang
 // sudah ada (onChange={(e) => setForm({...form, sell_price: e.target.value})})
 // TIDAK perlu diubah sama sekali, cukup ganti nama tag-nya saja.
-export function PriceInput({ label, hint, className = "", alignRow = false, value, onChange, prefix = "Rp", ...props }) {
+// decimals: 0 (bawaan) = rupiah bulat. Isi > 0 (mis. 6) untuk kolom MODAL yang boleh pakai koma
+// (1.166,666667).
+export function PriceInput({ label, hint, className = "", alignRow = false, value, onChange, prefix = "Rp", decimals = 0, ...props }) {
+  const inputClass = `w-full rounded-lg border border-border bg-background py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary ${prefix ? "pl-9 pr-3" : "px-3"}`;
   return (
     <div className={`${rowFieldClass(alignRow)} ${className}`}>
       {label ? (
@@ -105,14 +109,24 @@ export function PriceInput({ label, hint, className = "", alignRow = false, valu
       ) : null}
       <div className={`relative ${alignRow ? "self-start w-full" : ""}`}>
         {prefix && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-muted">{prefix}</span>}
-        <input
-          {...props}
-          type="text"
-          inputMode="numeric"
-          value={formatThousands(value)}
-          onChange={(e) => handleThousandsInputChange(e, (raw) => onChange({ target: { value: raw, name: props.name } }))}
-          className={`w-full rounded-lg border border-border bg-background py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary ${prefix ? "pl-9 pr-3" : "px-3"}`}
-        />
+        {decimals > 0 ? (
+          <DecimalInput
+            {...props}
+            decimals={decimals}
+            value={value}
+            onValueChange={(raw) => onChange({ target: { value: raw, name: props.name } })}
+            className={inputClass}
+          />
+        ) : (
+          <input
+            {...props}
+            type="text"
+            inputMode="numeric"
+            value={formatThousands(value)}
+            onChange={(e) => handleThousandsInputChange(e, (raw) => onChange({ target: { value: raw, name: props.name } }))}
+            className={inputClass}
+          />
+        )}
       </div>
       {hint ? <p className={`text-xs text-ink-muted mt-1 ${alignRow ? "self-start" : ""}`}>{hint}</p> : alignRow ? <span /> : null}
     </div>

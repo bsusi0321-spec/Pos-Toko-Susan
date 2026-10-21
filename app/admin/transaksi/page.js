@@ -275,7 +275,7 @@ export default function CekTransaksiPage() {
                     <td className="py-2 pr-3 text-right font-medium">{formatRupiah(tx.total)}</td>
                     <td className="py-2 pr-3 capitalize">{tx.payment_method}</td>
                     <td className="py-2">
-                      <Badge tone={STATUS_TONE[tx.status] || "default"}>{STATUS_LABELS[tx.status] || tx.status}</Badge>
+                      <Badge tone={STATUS_TONE[tx.status] || "default"}>{STATUS_LABELS[tx.status] || tx.status}</Badge>{tx.is_exchange && <Badge tone="warning" className="ml-1">Retur/Tukar</Badge>}
                     </td>
                   </tr>
                 ))}

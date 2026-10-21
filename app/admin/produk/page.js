@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { createClient } from "@/lib/supabase/client";
 import { formatRupiah, formatNumber } from "@/lib/format";
@@ -12,7 +12,7 @@ import { findBarcodeConflict } from "@/lib/checkBarcodeOwner";
 import { useViewport } from "@/lib/useViewport";
 import { getBranchStock } from "@/lib/branchStock";
 import CameraScanButton from "@/components/CameraScanButton";
-import { matchesProductQuery } from "@/lib/search";
+import { matchesProductQuery, warmSearchIndex } from "@/lib/search";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 
 // Stok disimpan numeric(14,3): bulatkan 3 desimal supaya selisih pecahan tidak berekor aneh.
@@ -59,6 +59,11 @@ export default function ProdukPage() {
   // dengan angka lama -- lihat saveBranchStock().
   const [origStock, setOrigStock] = useState(0);
   const [search, setSearch] = useState("");
+  // Jumlah baris yang digambar. Menggambar ribuan baris sekaligus membuat SETIAP
+  // huruf yang diketik (di kolom cari maupun di form) terasa tertinggal, jadi
+  // ditampilkan bertahap. Pencarian tetap memeriksa SEMUA produk.
+  const PAGE_SIZE = 100;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [branches, setBranches] = useState([]);
   const [activeBranch, setActiveBranch] = useState("");
   // Daftar "Satuan Barang" (PCS, DUS, LUSIN, dll) yang bisa ditambah/dihapus
@@ -439,7 +444,7 @@ export default function ProdukPage() {
     const { data, error } = await supabase.from("products").delete().eq("id", p.id).select("id");
     if (error) {
       if (error.code === "23503") {
-        toast.error("Belum bisa dihapus: jalankan dulu migration-32-hapus-produk-nonaktif.sql di Supabase SQL Editor (lihat PANDUAN-UPDATE-V33.md).", { duration: 8000 });
+        toast.error("Belum bisa dihapus: jalankan dulu migration-32-hapus-produk-nonaktif.sql di Supabase SQL Editor.", { duration: 8000 });
       } else {
         toast.error(error.message);
       }
@@ -455,7 +460,14 @@ export default function ProdukPage() {
 
   // Kata kunci boleh diketik sebagian & urutannya bebas, mis. "kecap
   // banteng" tetap menemukan "Kecap Asin Banteng" — lihat lib/search.js.
-  const filtered = products.filter((p) => matchesProductQuery(p, search));
+  const filtered = useMemo(() => products.filter((p) => matchesProductQuery(p, search)), [products, search]);
+  const shownProducts = filtered.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [search]);
+
+  useEffect(() => warmSearchIndex(products), [products]);
 
   return (
     <div className="space-y-5">
@@ -498,7 +510,7 @@ export default function ProdukPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p, i) => {
+                {shownProducts.map((p, i) => {
                   const branchStock = getBranchStock(p, activeBranch);
                   return (
                   <tr key={p.id} className="border-b border-border last:border-0">
@@ -535,6 +547,22 @@ export default function ProdukPage() {
                 })}
               </tbody>
             </table>
+            {filtered.length > shownProducts.length && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-sm text-ink-muted">
+                <span>
+                  Menampilkan {formatNumber(shownProducts.length)} dari {formatNumber(filtered.length)} produk
+                  {search.trim() ? "" : " — ketik di kolom cari untuk menemukan produk lebih cepat"}
+                </span>
+                <span className="space-x-2">
+                  <Button variant="outline" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+                    Tampilkan {PAGE_SIZE} lagi
+                  </Button>
+                  <Button variant="outline" onClick={() => setVisibleCount(filtered.length)}>
+                    Tampilkan semua
+                  </Button>
+                </span>
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -664,7 +692,7 @@ export default function ProdukPage() {
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga Eceran</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <PriceInput alignRow label="Harga Beli / Modal (per pcs)"  value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli / Modal (per pcs)"  decimals={6} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} />
                     <PriceInput alignRow label="Harga Jual Eceran (per pcs)"  value={form.sell_price} onChange={(e) => setForm({ ...form, sell_price: e.target.value })} />
                   </div>
                 </div>
@@ -673,7 +701,7 @@ export default function ProdukPage() {
                   <p className="text-sm font-medium mb-3">Harga Grosir</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Input alignRow label="Isi per Grosir (pcs)" type="number" value={form.wholesale_qty} onChange={(e) => setForm({ ...form, wholesale_qty: e.target.value })} />
-                    <PriceInput alignRow label="Harga Beli Grosir (per paket)"  value={form.wholesale_cost_price} onChange={(e) => setForm({ ...form, wholesale_cost_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli Grosir (per paket)"  decimals={6} value={form.wholesale_cost_price} onChange={(e) => setForm({ ...form, wholesale_cost_price: e.target.value })} />
                     <PriceInput alignRow label="Harga Jual Grosir (per paket)"  value={form.wholesale_price} onChange={(e) => setForm({ ...form, wholesale_price: e.target.value })} />
                   </div>
                 </div>
@@ -682,7 +710,7 @@ export default function ProdukPage() {
                   <p className="text-sm font-medium mb-3">Harga Setengah Grosir</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Input alignRow label="Isi per Setengah Grosir (pcs)" type="number" value={form.half_wholesale_qty} onChange={(e) => setForm({ ...form, half_wholesale_qty: e.target.value })} />
-                    <PriceInput alignRow label="Harga Beli 1/2 Grosir (per paket)"  value={form.half_wholesale_cost_price} onChange={(e) => setForm({ ...form, half_wholesale_cost_price: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli 1/2 Grosir (per paket)"  decimals={6} value={form.half_wholesale_cost_price} onChange={(e) => setForm({ ...form, half_wholesale_cost_price: e.target.value })} />
                     <PriceInput alignRow label="Harga Jual 1/2 Grosir (per paket)"  value={form.half_wholesale_price} onChange={(e) => setForm({ ...form, half_wholesale_price: e.target.value })} />
                   </div>
                 </div>
@@ -692,21 +720,21 @@ export default function ProdukPage() {
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga per Kg</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <PriceInput alignRow label="Harga Beli per Kg"  value={form.cost_per_kg} onChange={(e) => setForm({ ...form, cost_per_kg: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli per Kg"  decimals={6} value={form.cost_per_kg} onChange={(e) => setForm({ ...form, cost_per_kg: e.target.value })} />
                     <PriceInput alignRow label="Harga Jual per Kg"  value={form.price_per_kg} onChange={(e) => setForm({ ...form, price_per_kg: e.target.value })} />
                   </div>
                 </div>
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga per 1/2 Kg</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <PriceInput alignRow label="Harga Beli per 1/2 Kg"  value={form.cost_per_half_kg} onChange={(e) => setForm({ ...form, cost_per_half_kg: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli per 1/2 Kg"  decimals={6} value={form.cost_per_half_kg} onChange={(e) => setForm({ ...form, cost_per_half_kg: e.target.value })} />
                     <PriceInput alignRow label="Harga Jual per 1/2 Kg"  value={form.price_per_half_kg} onChange={(e) => setForm({ ...form, price_per_half_kg: e.target.value })} />
                   </div>
                 </div>
                 <div className="border border-border rounded-xl p-4">
                   <p className="text-sm font-medium mb-3">Harga per Ons (peronan)</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <PriceInput alignRow label="Harga Beli per Ons"  value={form.cost_per_ons} onChange={(e) => setForm({ ...form, cost_per_ons: e.target.value })} />
+                    <PriceInput alignRow label="Harga Beli per Ons"  decimals={6} value={form.cost_per_ons} onChange={(e) => setForm({ ...form, cost_per_ons: e.target.value })} />
                     <PriceInput alignRow label="Harga Jual per Ons"  value={form.price_per_ons} onChange={(e) => setForm({ ...form, price_per_ons: e.target.value })} />
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { debounce } from "@/lib/debounce";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
@@ -9,6 +10,7 @@ import { exportToCsv } from "@/lib/exportCsv";
 import { StatCard, Card, EmptyState, Button, Input } from "@/components/ui/kit";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
+import { LOW_STOCK_ACTIVE_DAYS, loadRecentSalePairs, shouldNotifyLowStock } from "@/lib/lowStock";
 
 function startOfDay(d) {
   const x = new Date(d);
@@ -84,9 +86,12 @@ export default function DashboardPage() {
     // pertama kali halaman dibuka, jadi begitu admin ganti cabang, hasilnya
     // akan diam-diam balik ke "semua cabang" tiap kali realtime/interval ini
     // menyala. Ini sumber bug "Penjualan Hari Ini" yang kelihatan salah.
+    // Digabung 1,5 dtk: satu transaksi memicu beberapa event (insert + update status),
+    // dan tiap muat ulang dashboard menjalankan banyak query.
+    const reloadSoon = debounce(() => loadRef.current(), 1500);
     const channel = supabase
       .channel("dashboard-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => loadRef.current())
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, reloadSoon)
       .subscribe();
 
     // Jaring pengaman: tetap muat ulang tiap 30 detik walau koneksi realtime
@@ -94,6 +99,7 @@ export default function DashboardPage() {
     const interval = setInterval(() => loadRef.current(), 30000);
 
     return () => {
+      reloadSoon.cancel();
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
@@ -139,8 +145,8 @@ export default function DashboardPage() {
         fetchAllRowsOrEmpty(
           () =>
             branchFilter
-              ? supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)").eq("branch_id", branchFilter)
-              : supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)"),
+              ? supabase.from("product_branch_stock").select("product_id, branch_id, stock_qty, min_stock, products(name), branches(name)").eq("branch_id", branchFilter)
+              : supabase.from("product_branch_stock").select("product_id, branch_id, stock_qty, min_stock, products(name), branches(name)"),
           { orderBy: ["product_id", "branch_id"] }
         ),
         withBranch(
@@ -215,9 +221,12 @@ export default function DashboardPage() {
 
     setTodayTx(tToday || []);
     setMonthTx(tMonth || []);
+    // Aturan 3 hari: barang menipis yang tidak terjual dalam beberapa hari terakhir tidak ditampilkan.
+    const recentPairs = await loadRecentSalePairs(supabase);
     setLowStock(
       (products || [])
         .filter((row) => Number(row.stock_qty) <= Number(row.min_stock) && Number(row.min_stock) > 0)
+        .filter((row) => shouldNotifyLowStock(recentPairs, row.product_id, row.branch_id))
         .map((row) => ({
           name: row.products?.name || "(barang tidak dikenal)",
           branchName: row.branches?.name,
@@ -566,7 +575,7 @@ export default function DashboardPage() {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Produk Terlaris (Bulan Ini)">
+        <Card title="Produk Terlaris (Bulan Ini)" action={<Link href="/admin/produk-terlaris" className="text-xs font-medium text-primary">Lihat semua produk →</Link>}>
           {loading ? (
             <p className="text-sm text-ink-muted">Memuat...</p>
           ) : topProducts.length === 0 ? (
@@ -612,7 +621,7 @@ export default function DashboardPage() {
       </div>
 
       {lowStock.length > 0 && (
-        <Card title="Barang Perlu Restock">
+        <Card title={`Barang Perlu Restock (terjual ${LOW_STOCK_ACTIVE_DAYS} hari terakhir)`}>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {lowStock.map((p, idx) => (
               <div key={idx} className="border border-danger/30 bg-danger-soft rounded-lg p-3">

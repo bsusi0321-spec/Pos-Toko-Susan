@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatRupiah } from "@/lib/format";
-import { searchProducts } from "@/lib/search";
+import { searchProducts, warmSearchIndex } from "@/lib/search";
 
 export default function ProductSearchInput({
   products,
@@ -34,6 +34,8 @@ export default function ProductSearchInput({
   }, [value]);
 
   const results = useMemo(() => searchProducts(products, query, 30), [products, query]);
+
+  useEffect(() => warmSearchIndex(products), [products]);
 
   return (
     <div className={`relative ${className}`}>

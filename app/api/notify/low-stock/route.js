@@ -4,6 +4,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
 import { formatNumber } from "@/lib/format";
+import { loadRecentSalePairs, shouldNotifyLowStock } from "@/lib/lowStock";
 
 function getServiceClient() {
   return createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -34,15 +35,20 @@ async function runLowStockCheck(service, { isTest = false } = {}) {
     () =>
       service
         .from("product_branch_stock")
-        .select("product_id, stock_qty, min_stock, products(id, name, active, last_low_stock_notified_at), branches(name)")
+        .select("product_id, branch_id, stock_qty, min_stock, products(id, name, active, last_low_stock_notified_at), branches(name)")
         .gt("min_stock", 0),
     { orderBy: ["product_id", "branch_id"] }
   );
+
+  // Aturan 3 hari: barang menipis yang tidak terjual dalam beberapa hari terakhir tidak ikut dikirim.
+  // (Kalau gagal memuat, recentPairs = null -> tidak menyaring, notifikasi tetap terkirim seperti biasa.)
+  const recentPairs = await loadRecentSalePairs(service);
 
   const now = Date.now();
   const due = (rows || []).filter((r) => {
     if (!r.products?.active) return false;
     if (Number(r.stock_qty) > Number(r.min_stock)) return false;
+    if (!isTest && !shouldNotifyLowStock(recentPairs, r.product_id, r.branch_id)) return false;
     if (isTest) return true;
     const lastNotified = r.products?.last_low_stock_notified_at;
     if (!lastNotified) return true;

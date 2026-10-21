@@ -23,7 +23,7 @@ import toast from "react-hot-toast";
 import { ArrowLeft, Download, Receipt, ShoppingCart, ClipboardCheck, Undo2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllRows, fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
-import { formatRupiah, formatNumber, formatDateTime, txCode } from "@/lib/format";
+import { formatRupiah, formatRupiahDec, formatNumber, formatDateTime, txCode } from "@/lib/format";
 import { exportToCsv } from "@/lib/exportCsv";
 import { Button, Card, EmptyState, Input, Select, Badge, Modal, StatCard } from "@/components/ui/kit";
 import ProductSearchInput from "@/components/ProductSearchInput";
@@ -137,6 +137,10 @@ export default function KartuStokPage() {
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  // Produk laris bisa punya ribuan catatan; digambar bertahap supaya halaman tetap ringan.
+  // Total, saldo, dan Unduh CSV tetap memakai SEMUA catatan.
+  const ROW_STEP = 200;
+  const [rowLimit, setRowLimit] = useState(ROW_STEP);
 
   const [detail, setDetail] = useState(null); // { type: "trx" | "po", data }
   const [detailItems, setDetailItems] = useState([]);
@@ -280,6 +284,11 @@ export default function KartuStokPage() {
       })
       .reverse(); // terbaru di atas
   }, [allRows, dateStart, dateEnd, typeFilter]);
+
+  useEffect(() => {
+    setRowLimit(ROW_STEP);
+  }, [dateStart, dateEnd, typeFilter, productId, branchId]);
+  const pageRows = shown.slice(0, rowLimit);
 
   const totalIn = r3(shown.reduce((s, r) => s + (r.qtyN > 0 ? r.qtyN : 0), 0));
   const totalOut = r3(shown.reduce((s, r) => s + (r.qtyN < 0 ? -r.qtyN : 0), 0));
@@ -476,7 +485,7 @@ export default function KartuStokPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {shown.map((r, i) => {
+                    {pageRows.map((r, i) => {
                       const d = describeMovement(r);
                       return (
                         <tr key={r.id} className="border-b border-border last:border-0 align-top">
@@ -516,6 +525,22 @@ export default function KartuStokPage() {
                     )}
                   </tbody>
                 </table>
+                {shown.length > pageRows.length && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-sm text-ink-muted">
+                    <span>
+                      Menampilkan {formatNumber(pageRows.length)} dari {formatNumber(shown.length)} catatan (terbaru di atas). Total & unduhan
+                      CSV mencakup semuanya.
+                    </span>
+                    <span className="space-x-2">
+                      <Button variant="outline" onClick={() => setRowLimit((l) => l + ROW_STEP)}>
+                        Tampilkan {ROW_STEP} lagi
+                      </Button>
+                      <Button variant="outline" onClick={() => setRowLimit(shown.length)}>
+                        Tampilkan semua
+                      </Button>
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </Card>
@@ -649,7 +674,7 @@ export default function KartuStokPage() {
                     <span className="text-xs text-ink-muted">({PRICE_TYPE_LABELS[it.price_type] || it.price_type || "Eceran"})</span>
                   </p>
                   <p className="text-xs text-ink-muted">
-                    {formatNumber(it.qty, 3)} x {formatRupiah(it.unit_cost)}
+                    {formatNumber(it.qty, 3)} x {formatRupiahDec(it.unit_cost, 6)}
                   </p>
                 </div>
                 <p className="font-medium">{formatRupiah(it.subtotal)}</p>

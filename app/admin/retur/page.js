@@ -20,6 +20,7 @@ export default function ReturPage() {
   const [suppliers, setSuppliers] = useState([]);
   const [branches, setBranches] = useState([]);
   const [returns, setReturns] = useState([]);
+  const [exchanges, setExchanges] = useState([]); // retur + tukar barang dari akun kasir
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ product_id: "", qty: "", reason: "", refund_amount: "", supplier_id: "", branch_id: "" });
@@ -62,6 +63,12 @@ export default function ReturPage() {
     setSuppliers(s || []);
     setReturns(r || []);
     setBranches(b || []);
+    const { data: ex } = await supabase
+      .from("exchanges")
+      .select("*, profiles:cashier_id(full_name), exchange_items(kind, qty, price_type, condition, products(name))")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setExchanges(ex || []);
     setForm((f) => ({ ...f, branch_id: f.branch_id || b?.[0]?.id || "" }));
     setLoading(false);
   }
@@ -75,6 +82,18 @@ export default function ReturPage() {
     if (error) return toast.error(error.message);
     if (!data || data.length === 0) return toast.error("Gagal menandai, coba muat ulang halaman.");
     toast.success("Ditandai sudah diambil, pindah ke riwayat");
+    load();
+  }
+
+  async function setSupplier(r, supplierId) {
+    const { data, error } = await supabase
+      .from("returns")
+      .update({ reference_supplier_id: supplierId || null })
+      .eq("id", r.id)
+      .select("id");
+    if (error) return toast.error(error.message);
+    if (!data || data.length === 0) return toast.error("Gagal menyimpan supplier, coba muat ulang halaman.");
+    toast.success("Supplier disimpan");
     load();
   }
 
@@ -214,10 +233,46 @@ export default function ReturPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-ink-muted">{formatNumber(r.qty, 2)} unit</span>
+                  <select
+                    value={r.reference_supplier_id || ""}
+                    onChange={(e) => setSupplier(r, e.target.value)}
+                    className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+                  >
+                    <option value="">Pilih supplier</option>
+                    {suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                  </select>
                   <Button variant="outline" onClick={() => markPickedUp(r)}>Sudah Diambil</Button>
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Retur & Tukar Barang dari Kasir">
+        <p className="text-xs text-ink-muted mb-3">50 terakhir. Dibuat dari akun kasir; stok dan harga sudah diproses otomatis.</p>
+        {loading ? <p className="text-sm text-ink-muted">Memuat...</p> : exchanges.length === 0 ? (
+          <EmptyState text="Belum ada retur/tukar dari kasir." />
+        ) : (
+          <div className="space-y-2">
+            {exchanges.map((e) => {
+              const back = (e.exchange_items || []).filter((i) => i.kind === "return");
+              const gave = (e.exchange_items || []).filter((i) => i.kind === "new");
+              const fmt = (i) => `${i.products?.name || "(produk dihapus)"} x${formatNumber(i.qty, 2)}${i.condition === "rusak" ? " (rusak)" : ""}`;
+              return (
+                <div key={e.id} className="text-sm py-2 border-b border-border last:border-0">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium">{e.profiles?.full_name || "Kasir"} <span className="text-xs text-ink-muted font-normal">· {formatDateTime(e.created_at)}</span>{e.no_receipt && <Badge tone="warning" className="ml-1">Tanpa struk</Badge>}</p>
+                    <Badge tone={e.difference > 0 ? "primary" : e.difference < 0 ? "warning" : "default"}>
+                      {e.difference > 0 ? `Pelanggan bayar ${formatRupiah(e.difference)}` : e.difference < 0 ? `Kembali ${formatRupiah(Math.abs(e.difference))}` : "Impas"}
+                      {e.payment_method ? ` · ${e.payment_method}` : ""}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-ink-muted">Dikembalikan: {back.map(fmt).join(", ") || "-"}</p>
+                  <p className="text-xs text-ink-muted">Pengganti: {gave.map(fmt).join(", ") || "-"}{e.reason ? ` · Alasan: ${e.reason}` : ""}</p>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>

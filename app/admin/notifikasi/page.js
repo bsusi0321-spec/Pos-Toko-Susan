@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllRowsOrEmpty } from "@/lib/fetchAllRows";
+import { debounce } from "@/lib/debounce";
+import { LOW_STOCK_ACTIVE_DAYS, loadRecentSalePairs, shouldNotifyLowStock } from "@/lib/lowStock";
 import { formatRupiah, formatDateTime, formatNumber } from "@/lib/format";
 import { Card, EmptyState, Badge } from "@/components/ui/kit";
 
@@ -17,12 +20,16 @@ export default function NotifikasiPage() {
 
   useEffect(() => {
     load();
+    const reload = debounce(load, 1500); // gabungkan rentetan event jadi satu muat ulang
     const channel = supabase
       .channel("notifikasi-page")
-      .on("postgres_changes", { event: "*", schema: "public", table: "product_branch_stock" }, load)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "transactions" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "product_branch_stock" }, reload)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "transactions" }, reload)
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    return () => {
+      reload.cancel();
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -30,7 +37,7 @@ export default function NotifikasiPage() {
     setLoading(true);
     const [stock, { data: tx }] = await Promise.all([
       fetchAllRowsOrEmpty(
-        () => supabase.from("product_branch_stock").select("stock_qty, min_stock, products(name), branches(name)"),
+        () => supabase.from("product_branch_stock").select("product_id, branch_id, stock_qty, min_stock, products(name), branches(name)").gt("min_stock", 0),
         { orderBy: ["product_id", "branch_id"] }
       ),
       supabase
@@ -41,8 +48,11 @@ export default function NotifikasiPage() {
         .limit(15),
     ]);
 
+    // Aturan 3 hari: hanya barang menipis yang masih ada penjualan dalam beberapa hari terakhir.
+    const recentPairs = await loadRecentSalePairs(supabase);
     const low = (stock || [])
       .filter((row) => Number(row.stock_qty) <= Number(row.min_stock) && Number(row.min_stock) > 0)
+      .filter((row) => shouldNotifyLowStock(recentPairs, row.product_id, row.branch_id))
       .map((row) => ({ name: row.products?.name || "(barang)", branchName: row.branches?.name, stock_qty: row.stock_qty, min_stock: row.min_stock }));
 
     setLowStockItems(low);
@@ -63,10 +73,15 @@ export default function NotifikasiPage() {
       </div>
 
       <Card title={`Stok Menipis (${lowStockItems.length})`}>
+        <p className="text-xs text-ink-muted mb-3">
+          Hanya barang yang masih terjual dalam {LOW_STOCK_ACTIVE_DAYS} hari terakhir. Barang menipis yang tidak laku disembunyikan
+          supaya notifikasi tidak menumpuk, dan muncul lagi otomatis begitu terjual. Lihat semuanya di{" "}
+          <Link href="/admin/produk-terlaris" className="text-primary font-medium">Terlaris &amp; Tidak Laris</Link>.
+        </p>
         {loading ? (
           <p className="text-sm text-ink-muted">Memuat...</p>
         ) : lowStockItems.length === 0 ? (
-          <EmptyState text="Semua stok aman." />
+          <EmptyState text="Tidak ada barang menipis yang masih laku." />
         ) : (
           <div className="space-y-2">
             {lowStockItems.map((p, idx) => (

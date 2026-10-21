@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowLeft, Plus, Trash2, X, Download, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Download, Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDateTime, formatNumber, formatRupiah } from "@/lib/format";
 import { exportToCsv } from "@/lib/exportCsv";
@@ -13,6 +13,7 @@ import { useViewport } from "@/lib/useViewport";
 import CameraScanButton from "@/components/CameraScanButton";
 import ProductSearchInput from "@/components/ProductSearchInput";
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, Textarea } from "@/components/ui/kit";
+import OpnameRow from "./OpnameRow";
 
 const STATUS_LABEL = { draft: "Sedang dihitung", selesai: "Selesai", batal: "Dibatalkan" };
 const STATUS_TONE = { draft: "warning", selesai: "primary", batal: "danger" };
@@ -198,6 +199,12 @@ function OpnameDetail({ id, onBack }) {
   const [applying, setApplying] = useState(false);
   const inputRefs = useRef({});
   const pendingFocus = useRef(null);
+  // Baris yang digambar dibatasi (ribuan baris + kolom ketik membuat ketikan tertinggal).
+  // Pencarian & filter tetap memeriksa SEMUA barang; scan/cari barang yang ada di bawah
+  // otomatis memperluas daftar sampai barang itu tampil (lihat focusItem).
+  const ROW_STEP = 200;
+  const [rowLimit, setRowLimit] = useState(ROW_STEP);
+  const visibleRef = useRef([]);
 
   const isDraft = opname?.status === "draft";
   const hideSystem = isDraft && blind;
@@ -244,12 +251,21 @@ function OpnameDetail({ id, onBack }) {
     }
   }
 
-  function focusItem(itemId) {
+  function focusItem(itemId, retry = true) {
     const el = inputRefs.current[itemId];
     if (el) {
       el.scrollIntoView({ block: "center", behavior: "smooth" });
       el.focus();
       el.select?.();
+      return;
+    }
+    // Barang belum digambar karena ada di bawah batas baris -> perluas daftar lalu coba lagi.
+    if (retry) {
+      const idx = visibleRef.current.findIndex((i) => i.id === itemId);
+      if (idx >= 0) {
+        setRowLimit((l) => Math.max(l, idx + 21));
+        setTimeout(() => focusItem(itemId, false), 80);
+      }
     }
   }
 
@@ -402,6 +418,8 @@ function OpnameDetail({ id, onBack }) {
       return true;
     });
   }, [items, search, filter, hideSystem]);
+  visibleRef.current = visible;
+  const shownRows = visible.slice(0, rowLimit);
 
   function exportSession() {
     exportToCsv(
@@ -420,6 +438,32 @@ function OpnameDetail({ id, onBack }) {
       }))
     );
   }
+
+  // Aksi untuk baris hitungan (OpnameRow). Identitasnya tetap, tetapi selalu
+  // memanggil versi TERBARU fungsi di bawah, jadi nilai `inputs` tidak pernah basi.
+  const latest = useRef({});
+  latest.current = {
+    type: (id, value) => setInputs((m) => ({ ...m, [id]: value })),
+    save: saveCount,
+    reason: saveReason,
+    clear: clearCount,
+  };
+  const rowActions = useMemo(
+    () => ({
+      type: (id, value) => latest.current.type(id, value),
+      save: (item) => latest.current.save(item),
+      reason: (item, reason) => latest.current.reason(item, reason),
+      clear: (item) => latest.current.clear(item),
+    }),
+    []
+  );
+  const registerInputRef = useCallback((id, el) => {
+    inputRefs.current[id] = el;
+  }, []);
+
+  useEffect(() => {
+    setRowLimit(ROW_STEP);
+  }, [search, filter]);
 
   if (loading || !opname) {
     return (
@@ -565,97 +609,37 @@ function OpnameDetail({ id, onBack }) {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((i, n) => {
-                  const isCounted = i.physical_qty !== null;
-                  const diff = isCounted ? Number(i.diff_qty) : 0;
-                  const typed = inputs[i.id];
-                  return (
-                    <tr key={i.id} className="border-b border-border last:border-0">
-                      <td className="py-2 pr-3 text-ink-muted">{n + 1}</td>
-                      <td className="py-2 pr-3">
-                        {i.product_name}
-                        {i.unit_label && <span className="text-xs text-ink-muted"> ({i.unit_label})</span>}
-                        {i.product_id === null && <span className="block text-xs text-danger">Produk sudah dihapus</span>}
-                      </td>
-                      {!hideSystem && <td className="py-2 pr-3 text-right">{isCounted ? formatNumber(i.system_qty, 3) : "-"}</td>}
-                      <td className="py-2 pr-3 text-right">
-                        {isDraft && i.product_id ? (
-                          <input
-                            ref={(el) => {
-                              inputRefs.current[i.id] = el;
-                            }}
-                            type="text"
-                            inputMode="decimal"
-                            disabled={savingId === i.id}
-                            placeholder="0"
-                            value={typed !== undefined ? typed : isCounted ? String(Number(i.physical_qty)) : ""}
-                            onChange={(e) => setInputs((m) => ({ ...m, [i.id]: e.target.value }))}
-                            onBlur={() => saveCount(i)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            className="w-24 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-right outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary disabled:opacity-50"
-                          />
-                        ) : isCounted ? (
-                          formatNumber(i.physical_qty, 3)
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      {!hideSystem && (
-                        <td className={`py-2 pr-3 text-right font-medium ${isCounted ? diffTone(diff) : ""}`}>
-                          {isCounted ? (diff > 0 ? "+" : "") + formatNumber(diff, 3) : "-"}
-                        </td>
-                      )}
-                      {!hideSystem && (
-                        <td className={`py-2 pr-3 text-right ${isCounted ? diffTone(diff) : ""}`}>
-                          {isCounted ? formatRupiah(diff * Number(i.cost_price)) : "-"}
-                        </td>
-                      )}
-                      <td className="py-2 pr-3">
-                        {isDraft ? (
-                          isCounted ? (
-                            <select
-                              value={i.reason || ""}
-                              onChange={(e) => saveReason(i, e.target.value)}
-                              className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-                            >
-                              <option value="">-</option>
-                              {REASONS.map((r) => (
-                                <option key={r} value={r}>
-                                  {r}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-ink-muted">-</span>
-                          )
-                        ) : (
-                          i.reason || "-"
-                        )}
-                      </td>
-                      {isDraft && (
-                        <td className="py-2 text-right">
-                          {isCounted && (
-                            <button
-                              type="button"
-                              title="Batalkan hitungan barang ini"
-                              onClick={() => clearCount(i)}
-                              className="text-ink-muted hover:text-danger p-1"
-                            >
-                              <X size={16} />
-                            </button>
-                          )}
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
+                {shownRows.map((i, n) => (
+                  <OpnameRow
+                    key={i.id}
+                    i={i}
+                    n={n}
+                    typed={inputs[i.id]}
+                    saving={savingId === i.id}
+                    isDraft={isDraft}
+                    hideSystem={hideSystem}
+                    registerRef={registerInputRef}
+                    actions={rowActions}
+                  />
+                ))}
               </tbody>
             </table>
+            {visible.length > shownRows.length && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-sm text-ink-muted">
+                <span>
+                  Menampilkan {formatNumber(shownRows.length)} dari {formatNumber(visible.length)} barang — pakai kolom cari atau scan untuk
+                  menemukan barang lebih cepat
+                </span>
+                <span className="space-x-2">
+                  <Button variant="outline" onClick={() => setRowLimit((l) => l + ROW_STEP)}>
+                    Tampilkan {ROW_STEP} lagi
+                  </Button>
+                  <Button variant="outline" onClick={() => setRowLimit(visible.length)}>
+                    Tampilkan semua
+                  </Button>
+                </span>
+              </div>
+            )}
           </div>
         )}
       </Card>

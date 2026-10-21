@@ -16,7 +16,7 @@ import { speakProductName, isVoiceEnabled, setVoiceEnabled } from "@/lib/voice";
 import { buildVoiceDictionaryMap } from "@/lib/voiceDictionary";
 import { normalizeBarcode, findProductByCode } from "@/lib/barcode";
 import { getBranchStock } from "@/lib/branchStock";
-import { searchProducts } from "@/lib/search";
+import { searchProducts, warmSearchIndex } from "@/lib/search";
 import { getSavedTheme, saveTheme, applyTheme } from "@/lib/theme";
 
 import OpeningCashModal from "./components/OpeningCashModal";
@@ -26,6 +26,7 @@ import QtyModal from "./components/QtyModal";
 import PaymentModal from "./components/PaymentModal";
 import PendingListModal from "./components/PendingListModal";
 import MySalesModal from "./components/MySalesModal";
+import ExchangeModal from "./components/ExchangeModal";
 import CameraScannerModal from "./components/CameraScannerModal";
 import ReceiptModal from "./components/ReceiptModal";
 import { Volume2, VolumeX, Search, Hash, PauseCircle, RotateCcw, CreditCard, PackageOpen, Menu, X, ScanLine, Trash2, Building2, Moon, Sun } from "lucide-react";
@@ -130,6 +131,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [closeShiftOpen, setCloseShiftOpen] = useState(false);
   const [mySalesOpen, setMySalesOpen] = useState(false);
+  const [exchangeOpen, setExchangeOpen] = useState(false);
   const { physicalActive, phoneConnected } = useScanner();
   const [voiceOn, setVoiceOn] = useState(true);
   const [lastReceipt, setLastReceipt] = useState(null);
@@ -179,6 +181,10 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
     // banteng" tetap menemukan "Kecap Asin Banteng" — lihat lib/search.js.
     return searchProducts(products, search, 30);
   }, [search, products]);
+
+  // Siapkan indeks pencarian di latar belakang (saat browser menganggur) supaya
+  // huruf pertama yang diketik kasir pun sudah langsung cepat.
+  useEffect(() => warmSearchIndex(products), [products]);
 
   const taxInclusive = !!settings?.tax_price_inclusive;
 
@@ -964,6 +970,12 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
               Penjualan Saya (Rekap)
             </button>
             <button
+              onClick={() => setExchangeOpen(true)}
+              className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+            >
+              Retur &amp; Tukar Barang
+            </button>
+            <button
               onClick={() => lastReceipt && setReceiptModalOpen(true)}
               disabled={!lastReceipt}
               className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed"
@@ -988,7 +1000,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
             </button>
             {isAdminAccount && (
               <button
-                onClick={() => router.push("/admin")}
+                onClick={() => router.push("/admin/dashboard")}
                 className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
               >
                 ← Kembali ke Admin
@@ -1061,6 +1073,15 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                   Penjualan Saya (Rekap)
                 </button>
                 <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setExchangeOpen(true);
+                  }}
+                  className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
+                >
+                  Retur &amp; Tukar Barang
+                </button>
+                <button
                   onClick={() => lastReceipt && setReceiptModalOpen(true)}
                   disabled={!lastReceipt}
                   className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1085,7 +1106,7 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
                 </button>
                 {isAdminAccount && (
                   <button
-                    onClick={() => router.push("/admin")}
+                    onClick={() => router.push("/admin/dashboard")}
                     className="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-background"
                   >
                     ← Kembali ke Admin
@@ -1462,6 +1483,17 @@ export default function KasirApp({ profile, isAdminAccount, impersonating, initi
           cashierName={profile.full_name}
           shift={shift}
           onClose={() => setMySalesOpen(false)}
+        />
+      )}
+
+      {exchangeOpen && (
+        <ExchangeModal
+          cashierId={profile.id}
+          shift={shift}
+          branchId={sessionBranchId}
+          products={products}
+          onClose={() => setExchangeOpen(false)}
+          onDone={() => router.refresh()}
         />
       )}
 
